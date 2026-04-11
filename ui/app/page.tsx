@@ -2,22 +2,22 @@
 
 import { useEffect, useState } from "react";
 import AgentLookup from "@/components/AgentLookup";
-import SessionPanel from "@/components/SessionPanel";
+import ChannelPanel from "@/components/SessionPanel";
 import TierTable from "@/components/TierTable";
-import { checkHealth, type SessionOpenResponse } from "@/lib/api";
+import { checkHealth, type ChannelOpenResponse } from "@/lib/api";
 
 const SAMPLE_AGENTS = [
-  { id: "1241", name: "Veridia" },
-  { id: "1253", name: "Local Trader" },
-  { id: "1218", name: "AlphaScout" },
-  { id: "1220", name: "DeFi Oracle" },
-  { id: "1210", name: "SolBot" },
+  { id: "1209", name: "Sentinel" },
+  { id: "1211", name: "DataPilot" },
+  { id: "1212", name: "TrustNode" },
+  { id: "1210", name: "TradeBot" },
+  { id: "1213", name: "Watchdog" },
 ];
 
 export default function Home() {
   const [serverUp, setServerUp] = useState<boolean | null>(null);
-  const [activeSession, setActiveSession] =
-    useState<SessionOpenResponse | null>(null);
+  const [activeChannel, setActiveChannel] =
+    useState<ChannelOpenResponse | null>(null);
   const [prefillAgent, setPrefillAgent] = useState("");
 
   useEffect(() => {
@@ -31,14 +31,14 @@ export default function Home() {
       {/* Header */}
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">
-          Dynamic Payment Sessions
+          Dynamic Payment Channels
         </h1>
         <p className="text-white/50 text-sm max-w-2xl">
-          Transaction limits and session durations adapt based on agent trust
-          scores. Higher-trust agents get larger payment windows. Powered by{" "}
-          <span className="text-white/70">Valiron</span> reputation scoring and{" "}
-          <span className="text-white/70">Solana USDC</span> via micropayment
-          protocol.
+          Agents open a channel once, consume services freely, and settle at the
+          end — no per-request transactions, no friction. Trust scores determine
+          credit lines and channel duration. Powered by{" "}
+          <span className="text-white/70">Valiron</span> reputation and{" "}
+          <span className="text-white/70">Solana USDC</span> settlement.
         </p>
       </div>
 
@@ -66,7 +66,7 @@ export default function Home() {
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-            1. Gate Agent & Open Session
+            1. Gate Agent & Open Channel
           </h2>
           <div className="flex items-center gap-2 text-xs text-white/30">
             Try:
@@ -83,19 +83,19 @@ export default function Home() {
         </div>
         <AgentLookup
           prefillAgent={prefillAgent}
-          onSessionCreated={(s) => setActiveSession(s)}
+          onChannelOpened={(ch) => setActiveChannel(ch)}
         />
       </section>
 
-      {/* Active Session */}
-      {activeSession && (
+      {/* Active Channel */}
+      {activeChannel && (
         <section>
           <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider mb-3">
-            2. Session Controls
+            2. Consume Services & Settle
           </h2>
-          <SessionPanel
-            session={activeSession}
-            onClosed={() => setActiveSession(null)}
+          <ChannelPanel
+            channel={activeChannel}
+            onSettled={() => setActiveChannel(null)}
           />
         </section>
       )}
@@ -105,7 +105,7 @@ export default function Home() {
         <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider mb-3">
           Tier Policy Reference
         </h2>
-        <TierTable activeTier={activeSession?.tier} />
+        <TierTable activeTier={activeChannel?.tier} />
       </section>
 
       {/* Architecture */}
@@ -116,23 +116,23 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center text-sm">
           <Step
             n={1}
-            title="Agent Requests Access"
-            desc="POST /session/open/:agentId"
+            title="Open Channel"
+            desc="Gate check via Valiron → trust tier → credit line assigned"
           />
           <Step
             n={2}
-            title="Valiron Gate Check"
-            desc="Score, tier, risk level from on-chain reputation"
+            title="Consume Freely"
+            desc="Each request is instant (200 OK) — costs added to tab"
           />
           <Step
             n={3}
-            title="Session Created"
-            desc="Tier-based limits: tx cap, spend limit, duration"
+            title="Tab Tracked"
+            desc="Server enforces credit line, duration, and request cap"
           />
           <Step
             n={4}
-            title="Transact via MPP"
-            desc="Each tx is a real USDC charge on Solana"
+            title="Settle Once"
+            desc="One USDC charge on Solana for the total tab at close"
           />
         </div>
       </section>

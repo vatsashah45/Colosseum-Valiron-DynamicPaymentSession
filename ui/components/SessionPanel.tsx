@@ -2,41 +2,42 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  getSessionStatus,
-  closeSession,
-  transact,
-  type SessionOpenResponse,
-  type SessionStatusResponse,
+  getChannelStatus,
+  settleChannel,
+  consume,
+  type ChannelOpenResponse,
+  type ChannelStatusResponse,
+  type SettlementResponse,
 } from "@/lib/api";
 
-interface SessionPanelProps {
-  session: SessionOpenResponse;
-  onClosed: () => void;
+interface ChannelPanelProps {
+  channel: ChannelOpenResponse;
+  onSettled: () => void;
 }
 
-export default function SessionPanel({ session, onClosed }: SessionPanelProps) {
-  const [status, setStatus] = useState<SessionStatusResponse | null>(null);
-  const [txAmount, setTxAmount] = useState("0.50");
-  const [txDesc, setTxDesc] = useState("API call");
-  const [txLoading, setTxLoading] = useState(false);
-  const [txResult, setTxResult] = useState<{
+export default function ChannelPanel({ channel, onSettled }: ChannelPanelProps) {
+  const [status, setStatus] = useState<ChannelStatusResponse | null>(null);
+  const [cost, setCost] = useState("0.50");
+  const [desc, setDesc] = useState("API call");
+  const [consuming, setConsuming] = useState(false);
+  const [lastResult, setLastResult] = useState<{
     status: number;
     data: Record<string, unknown>;
   } | null>(null);
-  const [closing, setClosing] = useState(false);
-  const [closeResult, setCloseResult] = useState<Record<string, unknown> | null>(null);
+  const [settling, setSettling] = useState(false);
+  const [settlement, setSettlement] = useState<SettlementResponse | null>(null);
   const [logs, setLogs] = useState<
     { time: string; action: string; detail: string; ok: boolean }[]
   >([]);
 
   const refresh = useCallback(async () => {
     try {
-      const s = await getSessionStatus(session.sessionId);
+      const s = await getChannelStatus(channel.sessionId);
       setStatus(s);
     } catch {
       // ignore
     }
-  }, [session.sessionId]);
+  }, [channel.sessionId]);
 
   useEffect(() => {
     refresh();
@@ -47,82 +48,96 @@ export default function SessionPanel({ session, onClosed }: SessionPanelProps) {
   function addLog(action: string, detail: string, ok: boolean) {
     setLogs((prev) => [
       { time: new Date().toLocaleTimeString(), action, detail, ok },
-      ...prev.slice(0, 19),
+      ...prev.slice(0, 29),
     ]);
   }
 
-  async function handleTransact(e: React.FormEvent) {
+  async function handleConsume(e: React.FormEvent) {
     e.preventDefault();
-    const amount = parseFloat(txAmount);
+    const amount = parseFloat(cost);
     if (isNaN(amount) || amount <= 0) return;
-    setTxLoading(true);
-    setTxResult(null);
+    setConsuming(true);
+    setLastResult(null);
     try {
-      const res = await transact(session.sessionId, amount, txDesc);
-      setTxResult(res);
-      if (res.status === 402) {
-        addLog(
-          "TRANSACT",
-          `$${amount} → 402 Payment Required (challenge issued)`,
-          true
-        );
-      } else if (res.status === 200) {
-        addLog("TRANSACT", `$${amount} → ✓ paid`, true);
+      const res = await consume(channel.sessionId, amount, desc);
+      setLastResult(res);
+      if (res.status === 200) {
+        addLog("CONSUME", `$${amount} → 200 OK (instant, no payment)`, true);
       } else {
         addLog(
-          "TRANSACT",
+          "CONSUME",
           `$${amount} → ${res.status} ${(res.data as { error?: string }).error || ""}`,
           false
         );
       }
       refresh();
     } catch {
-      addLog("TRANSACT", `$${amount} → connection error`, false);
+      addLog("CONSUME", `$${amount} → connection error`, false);
     } finally {
-      setTxLoading(false);
+      setConsuming(false);
     }
   }
 
-  async function handleClose() {
-    setClosing(true);
+  async function handleSettle() {
+    setSettling(true);
     try {
-      const res = await closeSession(session.sessionId);
-      setCloseResult(res as unknown as Record<string, unknown>);
-      addLog("CLOSE", `Session closed. Total spent: ${(res as { totalSpentReadable?: string }).totalSpentReadable || "?"}`, true);
-      onClosed();
+      const res = await settleChannel(channel.sessionId);
+      if (res.status === 200) {
+        const s = res.data as SettlementResponse;
+        setSettlement(s);
+        addLog(
+          "SETTLE",
+          `Channel settled. Total: ${s.totalConsumedReadable} for ${s.requestsServed} requests`,
+          true
+        );
+      } else if (res.status === 402) {
+        addLog(
+          "SETTLE",
+          `402 — Settlement charge issued for total consumed (one payment)`,
+          true
+        );
+        setLastResult(res);
+      } else {
+        addLog("SETTLE", `Failed: ${(res.data as { error?: string }).error}`, false);
+      }
+      refresh();
     } catch {
-      addLog("CLOSE", "Failed to close session", false);
+      addLog("SETTLE", "Failed to settle channel", false);
     } finally {
-      setClosing(false);
+      setSettling(false);
     }
   }
 
   const secondsLeft = status?.secondsRemaining ?? 0;
-  const pctTime = status
-    ? Math.max(0, (secondsLeft / session.durationSeconds) * 100)
-    : 100;
+  const pctTime = Math.max(0, (secondsLeft / channel.durationSeconds) * 100);
 
-  const remainingUSDC = status?.remainingLimitReadable ?? session.transactionLimitReadable;
-  const limitNum = parseFloat(session.transactionLimitReadable.replace("$", ""));
-  const remainNum = parseFloat(remainingUSDC.replace("$", ""));
-  const pctLimit = limitNum > 0 ? Math.max(0, (remainNum / limitNum) * 100) : 100;
+  const creditNum = parseFloat(channel.creditLineReadable.replace("$", ""));
+  const consumedReadable = status?.consumedReadable ?? "$0.00";
+  const consumedNum = parseFloat(consumedReadable.replace("$", ""));
+  const pctCredit = creditNum > 0 ? Math.max(0, ((creditNum - consumedNum) / creditNum) * 100) : 100;
 
-  const txUsed = status?.transactionsUsed ?? session.transactionsUsed;
-  const txMax = session.maxTransactions;
+  const reqCount = status?.requestCount ?? 0;
+  const maxReqs = channel.maxRequests;
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Active Session</h2>
+        <h2 className="text-lg font-semibold">Active Channel</h2>
         <div className="flex items-center gap-3">
-          {status?.active !== false && (
+          {status?.active !== false && !settlement && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Live
+              Open
+            </span>
+          )}
+          {settlement && (
+            <span className="flex items-center gap-1.5 text-xs text-blue-400">
+              <span className="w-2 h-2 rounded-full bg-blue-400" />
+              Settled
             </span>
           )}
           <span className="text-xs text-white/30 font-mono">
-            {session.sessionId.slice(0, 8)}…
+            {channel.sessionId.slice(0, 8)}…
           </span>
         </div>
       </div>
@@ -136,128 +151,128 @@ export default function SessionPanel({ session, onClosed }: SessionPanelProps) {
           color="bg-blue-400"
         />
         <Gauge
-          label="Spend Remaining"
-          value={remainingUSDC}
-          pct={pctLimit}
+          label="Credit Remaining"
+          value={status?.remainingReadable ?? channel.creditLineReadable}
+          pct={pctCredit}
           color="bg-emerald-400"
         />
         <Gauge
-          label="Transactions"
-          value={txMax ? `${txUsed} / ${txMax}` : `${txUsed} / ∞`}
-          pct={txMax ? Math.max(0, 100 - (txUsed / txMax) * 100) : 100}
+          label="Requests"
+          value={maxReqs ? `${reqCount} / ${maxReqs}` : `${reqCount} / ∞`}
+          pct={maxReqs ? Math.max(0, 100 - (reqCount / maxReqs) * 100) : 100}
           color="bg-purple-400"
         />
       </div>
 
-      {/* Send Transaction */}
-      {!closeResult && status?.active !== false && (
-        <form onSubmit={handleTransact} className="flex gap-3 items-end">
+      {/* Tab summary */}
+      <div className="flex items-center gap-6 text-sm">
+        <div>
+          <span className="text-white/40">Tab: </span>
+          <span className="font-mono text-white/90">{consumedReadable}</span>
+          <span className="text-white/30"> / {channel.creditLineReadable}</span>
+        </div>
+        <div>
+          <span className="text-white/40">Requests served: </span>
+          <span className="font-mono text-white/90">{reqCount}</span>
+        </div>
+      </div>
+
+      {/* Consume Form */}
+      {!settlement && status?.active !== false && (
+        <form onSubmit={handleConsume} className="flex gap-3 items-end">
           <div className="flex-1">
-            <label className="text-xs text-white/40 block mb-1">
-              Amount (USDC)
-            </label>
+            <label className="text-xs text-white/40 block mb-1">Cost (USDC)</label>
             <input
               type="number"
               step="0.01"
               min="0.01"
-              value={txAmount}
-              onChange={(e) => setTxAmount(e.target.value)}
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white font-mono focus:outline-none focus:border-white/30"
             />
           </div>
           <div className="flex-1">
-            <label className="text-xs text-white/40 block mb-1">
-              Description
-            </label>
+            <label className="text-xs text-white/40 block mb-1">Service</label>
             <input
               type="text"
-              value={txDesc}
-              onChange={(e) => setTxDesc(e.target.value)}
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30"
             />
           </div>
           <button
             type="submit"
-            disabled={txLoading}
-            className="px-5 py-2 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 disabled:opacity-30 font-medium transition-colors"
+            disabled={consuming}
+            className="px-5 py-2 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-30 font-medium transition-colors"
           >
-            {txLoading ? "…" : "Transact"}
+            {consuming ? "…" : "Consume"}
           </button>
           <button
             type="button"
-            onClick={handleClose}
-            disabled={closing}
-            className="px-5 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-30 font-medium transition-colors"
+            onClick={handleSettle}
+            disabled={settling}
+            className="px-5 py-2 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-30 font-medium transition-colors"
           >
-            Close
+            {settling ? "…" : "Settle & Close"}
           </button>
         </form>
       )}
 
-      {/* Last Transaction Result */}
-      {txResult && (
+      {/* Last Result */}
+      {lastResult && (
         <div
           className={`rounded-lg p-3 text-sm font-mono ${
-            txResult.status === 402
-              ? "bg-yellow-500/10 border border-yellow-500/20 text-yellow-300"
-              : txResult.status === 200
+            lastResult.status === 200
               ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+              : lastResult.status === 402
+              ? "bg-yellow-500/10 border border-yellow-500/20 text-yellow-300"
               : "bg-red-500/10 border border-red-500/20 text-red-300"
           }`}
         >
-          <span className="text-white/40 mr-2">HTTP {txResult.status}</span>
-          {txResult.status === 402 && "Payment challenge issued (402)"}
-          {txResult.status === 200 && "Payment completed"}
-          {txResult.status === 403 &&
-            `Denied: ${(txResult.data as { error?: string }).error}`}
-          {txResult.status === 410 && "Session expired"}
+          <span className="text-white/40 mr-2">HTTP {lastResult.status}</span>
+          {lastResult.status === 200 && "Service consumed — added to tab (no payment)"}
+          {lastResult.status === 402 && "Settlement charge issued (one-time payment for total tab)"}
+          {lastResult.status === 403 && `Denied: ${(lastResult.data as { error?: string }).error}`}
+          {lastResult.status === 410 && "Channel expired"}
+          {lastResult.status === 429 && "Max requests reached"}
         </div>
       )}
 
-      {/* Close Result */}
-      {closeResult && (
-        <div className="rounded-lg bg-white/5 border border-white/10 p-4">
-          <div className="text-sm font-semibold text-white/60 mb-2 uppercase tracking-wider">
-            Session Summary
+      {/* Settlement Summary */}
+      {settlement && (
+        <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-4">
+          <div className="text-sm font-semibold text-blue-400 mb-2 uppercase tracking-wider">
+            Settlement Complete
           </div>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
-              <span className="text-white/40">Transactions: </span>
-              <span className="font-mono">
-                {closeResult.transactionsCompleted as number}
-              </span>
+              <span className="text-white/40">Requests Served: </span>
+              <span className="font-mono">{settlement.requestsServed}</span>
             </div>
             <div>
-              <span className="text-white/40">Total Spent: </span>
-              <span className="font-mono text-emerald-400">
-                {closeResult.totalSpentReadable as string}
-              </span>
+              <span className="text-white/40">Total Tab: </span>
+              <span className="font-mono text-emerald-400">{settlement.totalConsumedReadable}</span>
             </div>
             <div>
-              <span className="text-white/40">Unused Limit: </span>
-              <span className="font-mono text-white/60">
-                {closeResult.unusedLimit as string}
-              </span>
+              <span className="text-white/40">Unused Credit: </span>
+              <span className="font-mono text-white/60">{settlement.unusedCreditReadable}</span>
             </div>
           </div>
+          <p className="mt-2 text-xs text-blue-400/60">
+            One on-chain USDC settlement for the entire session — zero per-request friction.
+          </p>
         </div>
       )}
 
       {/* Activity Log */}
       {logs.length > 0 && (
         <div>
-          <h3 className="text-xs text-white/40 uppercase tracking-wider mb-2">
-            Activity Log
-          </h3>
+          <h3 className="text-xs text-white/40 uppercase tracking-wider mb-2">Activity Log</h3>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {logs.map((log, i) => (
               <div key={i} className="flex items-center gap-2 text-xs font-mono">
                 <span className="text-white/20 w-20 shrink-0">{log.time}</span>
-                <span
-                  className={`w-20 shrink-0 ${
-                    log.ok ? "text-emerald-400/70" : "text-red-400/70"
-                  }`}
-                >
+                <span className={`w-20 shrink-0 ${log.ok ? "text-emerald-400/70" : "text-red-400/70"}`}>
                   {log.action}
                 </span>
                 <span className="text-white/50 truncate">{log.detail}</span>
@@ -270,17 +285,7 @@ export default function SessionPanel({ session, onClosed }: SessionPanelProps) {
   );
 }
 
-function Gauge({
-  label,
-  value,
-  pct,
-  color,
-}: {
-  label: string;
-  value: string;
-  pct: number;
-  color: string;
-}) {
+function Gauge({ label, value, pct, color }: { label: string; value: string; pct: number; color: string }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">

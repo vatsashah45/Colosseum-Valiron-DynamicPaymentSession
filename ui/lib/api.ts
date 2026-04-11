@@ -1,41 +1,60 @@
 const API = "/api";
 
-export interface SessionOpenResponse {
+export interface ChannelOpenResponse {
   sessionId: string;
   agentId: string;
   tier: string;
   score: number;
   riskLevel: string;
-  transactionLimit: string;
-  transactionLimitReadable: string;
-  remainingLimit: string;
-  maxTransactions: number | null;
-  transactionsUsed: number;
+  creditLine: string;
+  creditLineReadable: string;
+  maxRequests: number | null;
   expiresAt: string;
   durationSeconds: number;
 }
 
-export interface SessionStatusResponse {
+export interface ConsumeResponse {
+  requestId: string;
+  cost: string;
+  costReadable: string;
+  description?: string;
+  session: {
+    consumed: string;
+    consumedReadable: string;
+    remaining: string;
+    remainingReadable: string;
+    requestCount: number;
+    maxRequests: number | null;
+    secondsRemaining: number;
+  };
+}
+
+export interface ChannelStatusResponse {
   sessionId: string;
   agentId: string;
   tier: string;
-  transactionLimit: string;
-  remainingLimit: string;
-  remainingLimitReadable: string;
-  transactionsUsed: number;
-  maxTransactions: number | null;
+  creditLine: string;
+  creditLineReadable: string;
+  consumed: string;
+  consumedReadable: string;
+  remaining: string;
+  remainingReadable: string;
+  requestCount: number;
+  maxRequests: number | null;
   expiresAt: string;
   secondsRemaining: number;
   active: boolean;
+  settled: boolean;
 }
 
-export interface SessionCloseResponse {
+export interface SettlementResponse {
   sessionId: string;
-  closed: boolean;
-  transactionsCompleted: number;
-  totalSpent: string;
-  totalSpentReadable: string;
-  unusedLimit: string;
+  settled: boolean;
+  totalConsumed: string;
+  totalConsumedReadable: string;
+  requestsServed: number;
+  unusedCredit: string;
+  unusedCreditReadable: string;
 }
 
 export interface ErrorResponse {
@@ -46,43 +65,44 @@ export interface ErrorResponse {
   message: string;
 }
 
-export async function openSession(agentId: string): Promise<{
+export async function openChannel(agentId: string): Promise<{
   status: number;
-  data: SessionOpenResponse | ErrorResponse;
+  data: ChannelOpenResponse | ErrorResponse;
 }> {
-  const res = await fetch(`${API}/session/open/${agentId}`, { method: "POST" });
+  const res = await fetch(`${API}/channel/open/${agentId}`, { method: "POST" });
   const data = await res.json();
   return { status: res.status, data };
 }
 
-export async function getSessionStatus(
-  sessionId: string
-): Promise<SessionStatusResponse> {
-  const res = await fetch(`${API}/session/status/${sessionId}`);
-  return res.json();
-}
-
-export async function closeSession(
-  sessionId: string
-): Promise<SessionCloseResponse> {
-  const res = await fetch(`${API}/session/close/${sessionId}`, {
-    method: "POST",
-  });
-  return res.json();
-}
-
-export async function transact(
+export async function consume(
   sessionId: string,
-  amount: number,
+  cost: number,
   description?: string
-): Promise<{ status: number; data: Record<string, unknown> }> {
-  const res = await fetch(`${API}/session/transact/${sessionId}`, {
+): Promise<{ status: number; data: ConsumeResponse | Record<string, unknown> }> {
+  const res = await fetch(`${API}/channel/consume/${sessionId}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${sessionId}`,
     },
-    body: JSON.stringify({ amount, description }),
+    body: JSON.stringify({ cost, description }),
+  });
+  const data = await res.json();
+  return { status: res.status, data };
+}
+
+export async function getChannelStatus(
+  sessionId: string
+): Promise<ChannelStatusResponse> {
+  const res = await fetch(`${API}/channel/status/${sessionId}`);
+  return res.json();
+}
+
+export async function settleChannel(
+  sessionId: string
+): Promise<{ status: number; data: SettlementResponse | Record<string, unknown> }> {
+  const res = await fetch(`${API}/channel/settle/${sessionId}`, {
+    method: "POST",
   });
   const data = await res.json();
   return { status: res.status, data };

@@ -6,9 +6,10 @@ import { gateAgent } from "./gate.js";
 import { createMppx } from "./payment.js";
 import { SessionManager } from "./session-manager.js";
 import type {
-  SessionOpenResponse,
-  SessionStatusResponse,
-  SessionCloseResponse,
+  ChannelOpenResponse,
+  ConsumeResponse,
+  ChannelStatusResponse,
+  SettlementResponse,
 } from "./types.js";
 
 const app = express();
@@ -20,12 +21,13 @@ const mppx = createMppx();
 // ─── Health ─────────────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "dynamic-payment-sessions" });
+  res.json({ status: "ok", service: "dynamic-payment-channels" });
 });
 
-// ─── Open Session ───────────────────────────────────────────────────────────
+// ─── Open Channel ───────────────────────────────────────────────────────────
+// Gate check → create channel with trust-derived credit line. No payment yet.
 
-app.post("/session/open/:agentId", async (req, res) => {
+app.post("/channel/open/:agentId", async (req, res) => {
   const { agentId } = req.params;
 
   try {
@@ -50,17 +52,15 @@ app.post("/session/open/:agentId", async (req, res) => {
       gate.policy,
     );
 
-    const response: SessionOpenResponse = {
+    const response: ChannelOpenResponse = {
       sessionId: session.sessionId,
       agentId: session.agentId,
       tier: session.tier,
       score: session.score,
       riskLevel: session.riskLevel,
-      transactionLimit: String(session.transactionLimit),
-      transactionLimitReadable: formatUSDC(session.transactionLimit),
-      remainingLimit: String(session.remainingLimit),
-      maxTransactions: session.maxTransactions,
-      transactionsUsed: 0,
+      creditLine: String(session.creditLine),
+      creditLineReadable: formatUSDC(session.creditLine),
+      maxRequests: session.maxRequests,
       expiresAt: session.expiresAt.toISOString(),
       durationSeconds: Math.round(
         (session.expiresAt.getTime() - session.createdAt.getTime()) / 1000,
@@ -77,93 +77,63 @@ app.post("/session/open/:agentId", async (req, res) => {
   }
 });
 
-// ─── Transact ───────────────────────────────────────────────────────────────
+// ─── Consume ────────────────────────────────────────────────────────────────
+// Deduct from credit line. Instant 200. No payment friction.
 
-app.post("/session/transact/:sessionId", async (req, res) => {
+app.post("/channel/consume/:sessionId", (req, res) => {
   const { sessionId } = req.params;
   const auth = req.headers.authorization;
 
   if (!auth || auth !== `Bearer ${sessionId}`) {
-    res.status(401).json({ error: "unauthorized", message: "Invalid session token." });
+    res.status(401).json({ error: "unauthorized", message: "Invalid channel token." });
     return;
   }
 
-  const amount = Number(req.body?.amount);
+  const rawCost = Number(req.body?.cost);
   const description = req.body?.description as string | undefined;
 
-  if (!amount || isNaN(amount)) {
-    res.status(400).json({ error: "bad_request", message: "amount is required (base units)." });
+  if (!rawCost || isNaN(rawCost)) {
+    res.status(400).json({ error: "bad_request", message: "cost is required (USDC dollar amount, e.g. 0.50)." });
     return;
   }
 
-  // Validate session constraints before touching Solana
-  const check = sessions.canTransact(sessionId, amount);
+  // Convert dollar amount to base units (6 decimals)
+  const cost = Math.round(rawCost * 1_000_000);
+
+  // Validate against channel constraints
+  const check = sessions.canConsume(sessionId, cost);
   if (!check.ok) {
     const session = sessions.get(sessionId);
     res.status(check.code).json({
       error:
-        check.code === 410 ? "session_expired" :
-        check.code === 429 ? "max_transactions" :
-        check.code === 403 ? "limit_exceeded" :
-        "session_error",
+        check.code === 410 ? "channel_expired" :
+        check.code === 429 ? "max_requests" :
+        check.code === 403 ? "credit_exceeded" :
+        "channel_error",
       message: check.reason,
       ...(check.code === 403 && session
-        ? { requested: String(amount), remainingLimit: String(session.remainingLimit) }
-        : {}),
-      ...(check.code === 429 && session
-        ? { maxTransactions: session.maxTransactions, transactionsUsed: session.transactionsUsed }
+        ? { requested: String(cost), remaining: String(session.creditLine - session.consumed) }
         : {}),
     });
     return;
   }
 
-  // Run the @solana/mpp charge flow
-  const chargeHandler = Mppx.toNodeListener(
-    mppx.solana.charge({
-      amount: String(amount),
-      currency: CONFIG.solana.usdcMint,
-      description,
-    }),
-  );
+  // Record usage — no payment here, just a tab
+  const session = sessions.recordUsage(sessionId, cost, description);
+  const remaining = session.creditLine - session.consumed;
 
-  const result = await chargeHandler(req, res);
-
-  if (result.status === 402) {
-    // 402 response already sent by toNodeListener
-    return;
-  }
-
-  // Payment verified — record the transaction
-  // Extract signature from the receipt reference
-  const receiptHeader = res.getHeader("payment-receipt") as string | undefined;
-  let signature = "verified";
-  if (receiptHeader) {
-    // Receipt header contains base64-encoded JSON with reference field
-    try {
-      const receiptData = JSON.parse(
-        Buffer.from(receiptHeader.replace(/^Payment /, ""), "base64").toString(),
-      );
-      signature = receiptData.reference || "verified";
-    } catch {
-      // fallback
-    }
-  }
-
-  const session = sessions.recordTransaction(sessionId, amount, signature, description);
-
-  const responseBody = {
-    receipt: {
-      transactionId: session.transactions.at(-1)!.transactionId,
-      amount: String(amount),
-      amountReadable: formatUSDC(amount),
-      signature,
-      ...(description ? { description } : {}),
-    },
+  const response: ConsumeResponse = {
+    requestId: session.usage.at(-1)!.requestId,
+    cost: String(cost),
+    costReadable: formatUSDC(cost),
+    ...(description ? { description } : {}),
     session: {
-      remainingLimit: String(session.remainingLimit),
-      remainingLimitReadable: formatUSDC(session.remainingLimit),
-      transactionsUsed: session.transactionsUsed,
-      expiresAt: session.expiresAt.toISOString(),
+      consumed: String(session.consumed),
+      consumedReadable: formatUSDC(session.consumed),
+      remaining: String(remaining),
+      remainingReadable: formatUSDC(remaining),
+      requestCount: session.requestCount,
+      maxRequests: session.maxRequests,
       secondsRemaining: Math.max(
         0,
         Math.round((session.expiresAt.getTime() - Date.now()) / 1000),
@@ -171,22 +141,16 @@ app.post("/session/transact/:sessionId", async (req, res) => {
     },
   };
 
-  // withReceipt attaches the Payment-Receipt header to the response
-  result.withReceipt(
-    new Response(JSON.stringify(responseBody), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }),
-  );
+  res.json(response);
 });
 
-// ─── Session Status ─────────────────────────────────────────────────────────
+// ─── Channel Status ─────────────────────────────────────────────────────────
 
-app.get("/session/status/:sessionId", (req, res) => {
+app.get("/channel/status/:sessionId", (req, res) => {
   const session = sessions.get(req.params.sessionId);
 
   if (!session) {
-    res.status(404).json({ error: "not_found", message: "Session not found." });
+    res.status(404).json({ error: "not_found", message: "Channel not found." });
     return;
   }
 
@@ -194,43 +158,99 @@ app.get("/session/status/:sessionId", (req, res) => {
   const isExpired = now >= session.expiresAt.getTime();
   if (isExpired) session.active = false;
 
-  const response: SessionStatusResponse = {
+  const remaining = session.creditLine - session.consumed;
+
+  const response: ChannelStatusResponse = {
     sessionId: session.sessionId,
     agentId: session.agentId,
     tier: session.tier,
-    transactionLimit: String(session.transactionLimit),
-    remainingLimit: String(session.remainingLimit),
-    remainingLimitReadable: formatUSDC(session.remainingLimit),
-    transactionsUsed: session.transactionsUsed,
-    maxTransactions: session.maxTransactions,
+    creditLine: String(session.creditLine),
+    creditLineReadable: formatUSDC(session.creditLine),
+    consumed: String(session.consumed),
+    consumedReadable: formatUSDC(session.consumed),
+    remaining: String(remaining),
+    remainingReadable: formatUSDC(remaining),
+    requestCount: session.requestCount,
+    maxRequests: session.maxRequests,
     expiresAt: session.expiresAt.toISOString(),
     secondsRemaining: Math.max(
       0,
       Math.round((session.expiresAt.getTime() - now) / 1000),
     ),
     active: session.active,
+    settled: session.settled,
   };
 
   res.json(response);
 });
 
-// ─── Close Session ──────────────────────────────────────────────────────────
+// ─── Settle & Close ─────────────────────────────────────────────────────────
+// Close the channel and issue ONE settlement charge for total consumed.
 
-app.post("/session/close/:sessionId", (req, res) => {
-  const session = sessions.close(req.params.sessionId);
+app.post("/channel/settle/:sessionId", async (req, res) => {
+  const session = sessions.get(req.params.sessionId);
 
   if (!session) {
-    res.status(404).json({ error: "not_found", message: "Session not found." });
+    res.status(404).json({ error: "not_found", message: "Channel not found." });
     return;
   }
 
-  const response: SessionCloseResponse = {
+  if (session.settled) {
+    res.status(409).json({ error: "already_settled", message: "Channel already settled." });
+    return;
+  }
+
+  // Close the channel
+  sessions.close(session.sessionId);
+
+  const remaining = session.creditLine - session.consumed;
+
+  // If nothing was consumed, no payment needed
+  if (session.consumed === 0) {
+    sessions.settle(session.sessionId);
+    const response: SettlementResponse = {
+      sessionId: session.sessionId,
+      settled: true,
+      totalConsumed: "0",
+      totalConsumedReadable: "$0.00",
+      requestsServed: 0,
+      unusedCredit: String(session.creditLine),
+      unusedCreditReadable: formatUSDC(session.creditLine),
+    };
+    res.json(response);
+    return;
+  }
+
+  // Issue ONE settlement charge via MPP for total consumed
+  const chargeHandler = Mppx.toNodeListener(
+    mppx.solana.charge({
+      amount: String(session.consumed),
+      currency: CONFIG.solana.usdcMint,
+      description: `Settlement: ${session.requestCount} requests on channel ${session.sessionId}`,
+    }),
+  );
+
+  const result = await chargeHandler(req, res);
+
+  if (result.status === 402) {
+    // 402 with payment challenge — agent needs to pay this ONE charge
+    // Don't mark as settled yet; they'll call again with receipt
+    // Re-open channel so they can retry settlement
+    session.active = false; // keep closed, but not settled
+    return;
+  }
+
+  // Payment verified — mark settled
+  sessions.settle(session.sessionId);
+
+  const response: SettlementResponse = {
     sessionId: session.sessionId,
-    closed: true,
-    transactionsCompleted: session.transactionsUsed,
-    totalSpent: String(session.totalSpent),
-    totalSpentReadable: formatUSDC(session.totalSpent),
-    unusedLimit: String(session.remainingLimit),
+    settled: true,
+    totalConsumed: String(session.consumed),
+    totalConsumedReadable: formatUSDC(session.consumed),
+    requestsServed: session.requestCount,
+    unusedCredit: String(remaining),
+    unusedCreditReadable: formatUSDC(remaining),
   };
 
   res.json(response);
@@ -239,7 +259,7 @@ app.post("/session/close/:sessionId", (req, res) => {
 // ─── Start ──────────────────────────────────────────────────────────────────
 
 app.listen(CONFIG.port, () => {
-  console.log(`Dynamic Payment Sessions server listening on port ${CONFIG.port}`);
+  console.log(`Dynamic Payment Channels server listening on port ${CONFIG.port}`);
   console.log(`  Network:   ${CONFIG.solana.network}`);
   console.log(`  Recipient: ${CONFIG.solana.recipient || "(not set)"}`);
   console.log(`  Valiron:   ${CONFIG.valiron.baseUrl}`);

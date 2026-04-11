@@ -3,18 +3,17 @@ import type { GateResult } from "@valiron/sdk";
 // ─── Session Types ──────────────────────────────────────────────────────────
 
 export interface SessionPolicy {
-  /** Max USDC in base units (6 decimals) the agent can spend in this session */
-  transactionLimit: number;
-  /** Session duration in seconds */
+  /** Max USDC in base units (6 decimals) the agent can consume on tab */
+  creditLine: number;
+  /** Channel duration in seconds */
   durationSeconds: number;
-  /** Max number of transactions allowed, null = unlimited */
-  maxTransactions: number | null;
+  /** Max number of service requests allowed, null = unlimited */
+  maxRequests: number | null;
 }
 
-export interface TransactionRecord {
-  transactionId: string;
-  amount: number;
-  signature: string;
+export interface UsageRecord {
+  requestId: string;
+  cost: number;
   description?: string;
   timestamp: Date;
 }
@@ -25,72 +24,76 @@ export interface Session {
   tier: string;
   score: number;
   riskLevel: string;
-  transactionLimit: number;
-  remainingLimit: number;
-  maxTransactions: number | null;
-  transactionsUsed: number;
-  totalSpent: number;
+  creditLine: number;
+  consumed: number;
+  maxRequests: number | null;
+  requestCount: number;
   createdAt: Date;
   expiresAt: Date;
   active: boolean;
-  transactions: TransactionRecord[];
+  settled: boolean;
+  settlementSignature?: string;
+  usage: UsageRecord[];
 }
 
 // ─── API Response Types ─────────────────────────────────────────────────────
 
-export interface SessionOpenResponse {
+export interface ChannelOpenResponse {
   sessionId: string;
   agentId: string;
   tier: string;
   score: number;
   riskLevel: string;
-  transactionLimit: string;
-  transactionLimitReadable: string;
-  remainingLimit: string;
-  maxTransactions: number | null;
-  transactionsUsed: number;
+  creditLine: string;
+  creditLineReadable: string;
+  maxRequests: number | null;
   expiresAt: string;
   durationSeconds: number;
 }
 
-export interface TransactResponse {
-  receipt: {
-    transactionId: string;
-    amount: string;
-    amountReadable: string;
-    signature: string;
-    description?: string;
-  };
+export interface ConsumeResponse {
+  requestId: string;
+  cost: string;
+  costReadable: string;
+  description?: string;
   session: {
-    remainingLimit: string;
-    remainingLimitReadable: string;
-    transactionsUsed: number;
-    expiresAt: string;
+    consumed: string;
+    consumedReadable: string;
+    remaining: string;
+    remainingReadable: string;
+    requestCount: number;
+    maxRequests: number | null;
     secondsRemaining: number;
   };
 }
 
-export interface SessionStatusResponse {
+export interface ChannelStatusResponse {
   sessionId: string;
   agentId: string;
   tier: string;
-  transactionLimit: string;
-  remainingLimit: string;
-  remainingLimitReadable: string;
-  transactionsUsed: number;
-  maxTransactions: number | null;
+  creditLine: string;
+  creditLineReadable: string;
+  consumed: string;
+  consumedReadable: string;
+  remaining: string;
+  remainingReadable: string;
+  requestCount: number;
+  maxRequests: number | null;
   expiresAt: string;
   secondsRemaining: number;
   active: boolean;
+  settled: boolean;
 }
 
-export interface SessionCloseResponse {
+export interface SettlementResponse {
   sessionId: string;
-  closed: boolean;
-  transactionsCompleted: number;
-  totalSpent: string;
-  totalSpentReadable: string;
-  unusedLimit: string;
+  settled: boolean;
+  totalConsumed: string;
+  totalConsumedReadable: string;
+  requestsServed: number;
+  unusedCredit: string;
+  unusedCreditReadable: string;
+  settlementChallenge?: Record<string, unknown>;
 }
 
 export interface GateCheckResult {

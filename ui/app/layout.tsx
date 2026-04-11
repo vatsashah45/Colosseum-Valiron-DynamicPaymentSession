@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Dynamic Payment Sessions",
-  description: "Trust-adaptive payment sessions for AI agents on Solana",
+  title: "Dynamic Payment Channels",
+  description: "Trust-adaptive payment channels for AI agents on Solana",
 };
 
 export default function RootLayout({
