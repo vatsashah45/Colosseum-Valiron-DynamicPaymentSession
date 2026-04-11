@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { Mppx } from "@solana/mpp/server";
 import { CONFIG, formatUSDC } from "./config.js";

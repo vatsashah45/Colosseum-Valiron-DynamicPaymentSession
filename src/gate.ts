@@ -14,7 +14,8 @@ const valiron = new ValironSDK({
 export async function gateAgent(agentId: string): Promise<GateCheckResult> {
   const result = await valiron.gate(agentId);
 
-  if (!result.allow || result.score < CONFIG.valiron.minScore) {
+  // Use our own minScore threshold (independent of Valiron's default gate allow)
+  if (result.score < CONFIG.valiron.minScore) {
     return { allowed: false, result };
   }
 
