@@ -1,0 +1,26 @@
+{
+  "name": "dynamic-payment-sessions",
+  "version": "0.1.0",
+  "description": "Trust-adaptive payment session framework for Solana — powered by Valiron + @solana/mpp",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "demo": "tsx demo/simulate.ts"
+  },
+  "dependencies": {
+    "@solana/mpp": "^0.5.0",
+    "@solana/kit": "^6.5.0",
+    "@valiron/sdk": "^0.11.0",
+    "express": "^5.1.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "tsx": "^4.0.0",
+    "@types/express": "^5.0.0",
+    "@types/uuid": "^10.0.0",
+    "@types/node": "^22.0.0"
+  }
+}
