@@ -11,6 +11,8 @@ export interface ChannelOpenResponse {
   maxRequests: number | null;
   expiresAt: string;
   durationSeconds: number;
+  walletVerified: boolean;
+  walletBalance: string;
 }
 
 export interface ConsumeResponse {
@@ -65,11 +67,15 @@ export interface ErrorResponse {
   message: string;
 }
 
-export async function openChannel(agentId: string): Promise<{
+export async function openChannel(agentId: string, walletAddress?: string): Promise<{
   status: number;
   data: ChannelOpenResponse | ErrorResponse;
 }> {
-  const res = await fetch(`${API}/channel/open/${agentId}`, { method: "POST" });
+  const res = await fetch(`${API}/channel/open/${agentId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ walletAddress }),
+  });
   const data = await res.json();
   return { status: res.status, data };
 }

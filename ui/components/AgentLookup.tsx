@@ -6,6 +6,7 @@ import { openChannel, type ChannelOpenResponse, type ErrorResponse } from "@/lib
 interface AgentLookupProps {
   onChannelOpened: (channel: ChannelOpenResponse) => void;
   prefillAgent?: string;
+  walletAddress?: string | null;
 }
 
 const TIER_COLORS: Record<string, string> = {
@@ -24,7 +25,7 @@ const RISK_COLORS: Record<string, string> = {
   RED: "text-red-500",
 };
 
-export default function AgentLookup({ onChannelOpened, prefillAgent }: AgentLookupProps) {
+export default function AgentLookup({ onChannelOpened, prefillAgent, walletAddress }: AgentLookupProps) {
   const [agentId, setAgentId] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -39,10 +40,20 @@ export default function AgentLookup({ onChannelOpened, prefillAgent }: AgentLook
   async function handleOpen(e: React.FormEvent) {
     e.preventDefault();
     if (!agentId.trim()) return;
+    if (!walletAddress) {
+      setResult({
+        status: 0,
+        data: {
+          error: "wallet_required",
+          message: "Connect your Phantom wallet before opening a channel.",
+        },
+      });
+      return;
+    }
     setLoading(true);
     setResult(null);
     try {
-      const res = await openChannel(agentId.trim());
+      const res = await openChannel(agentId.trim(), walletAddress);
       setResult(res);
       if (res.status === 200) {
         onChannelOpened(res.data as ChannelOpenResponse);
@@ -94,6 +105,12 @@ export default function AgentLookup({ onChannelOpened, prefillAgent }: AgentLook
             <span className="text-red-400 font-semibold text-sm uppercase tracking-wider">
               {(data as ErrorResponse).error === "agent_rejected"
                 ? "Rejected"
+                : (data as ErrorResponse).error === "insufficient_balance"
+                ? "Insufficient USDC"
+                : (data as ErrorResponse).error === "unsettled_debt"
+                ? "Unsettled Debt"
+                : (data as ErrorResponse).error === "wallet_required"
+                ? "Wallet Required"
                 : "Error"}
             </span>
             <span className="text-white/30 text-xs">HTTP {result.status}</span>
@@ -127,7 +144,9 @@ export default function AgentLookup({ onChannelOpened, prefillAgent }: AgentLook
               <Stat label="Duration" value={`${Math.round(ch.durationSeconds / 60)} min`} />
               <Stat label="Max Requests" value={ch.maxRequests === null ? "Unlimited" : String(ch.maxRequests)} />
             </div>
-            <p className="mt-3 text-xs text-emerald-400/60">No payment required — consume services freely, settle when done.</p>
+            <p className="mt-3 text-xs text-emerald-400/60">
+              Wallet verified — USDC balance covers credit line. Consume services freely, settle when done.
+            </p>
           </div>
         );
       })()}

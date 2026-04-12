@@ -112,6 +112,7 @@ export default function Home() {
         <AgentLookup
           prefillAgent={prefillAgent}
           onChannelOpened={(ch) => setActiveChannel(ch)}
+          walletAddress={publicKey}
         />
       </section>
 

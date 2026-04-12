@@ -33,6 +33,7 @@ export interface Session {
   active: boolean;
   settled: boolean;
   settlementSignature?: string;
+  walletAddress: string;
   usage: UsageRecord[];
 }
 
@@ -49,6 +50,8 @@ export interface ChannelOpenResponse {
   maxRequests: number | null;
   expiresAt: string;
   durationSeconds: number;
+  walletVerified: boolean;
+  walletBalance: string;
 }
 
 export interface ConsumeResponse {

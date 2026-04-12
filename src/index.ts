@@ -4,6 +4,7 @@ import { Mppx } from "@solana/mpp/server";
 import { CONFIG, formatUSDC } from "./config.js";
 import { gateAgent } from "./gate.js";
 import { createMppx } from "./payment.js";
+import { getUsdcBalance } from "./solana-rpc.js";
 import { SessionManager } from "./session-manager.js";
 import type {
   ChannelOpenResponse,
@@ -35,6 +36,15 @@ app.get("/health", (_req, res) => {
 
 app.post("/channel/open/:agentId", async (req, res) => {
   const { agentId } = req.params;
+  const walletAddress = req.body?.walletAddress as string | undefined;
+
+  if (!walletAddress) {
+    res.status(400).json({
+      error: "wallet_required",
+      message: "walletAddress is required to open a channel.",
+    });
+    return;
+  }
 
   try {
     const gate = await gateAgent(agentId);
@@ -50,12 +60,48 @@ app.post("/channel/open/:agentId", async (req, res) => {
       return;
     }
 
+    // Check for unsettled debt from previous channels
+    const debt = await sessions.hasUnsettledDebt(walletAddress);
+    if (debt.hasDebt) {
+      res.status(403).json({
+        error: "unsettled_debt",
+        message: "This wallet has an unsettled channel. Settle it before opening a new one.",
+        outstandingSession: debt.sessionId,
+        outstandingAmount: String(debt.amount),
+        outstandingReadable: formatUSDC(debt.amount!),
+      });
+      return;
+    }
+
+    // Verify wallet has enough USDC to cover the credit line
+    let walletBalance = 0n;
+    try {
+      walletBalance = await getUsdcBalance(walletAddress);
+    } catch (err) {
+      console.error("Balance check error:", err);
+    }
+
+    if (walletBalance < BigInt(gate.policy.creditLine)) {
+      res.status(402).json({
+        error: "insufficient_balance",
+        message: "Wallet does not have enough USDC to cover the credit line.",
+        requiredBalance: String(gate.policy.creditLine),
+        requiredReadable: formatUSDC(gate.policy.creditLine),
+        actualBalance: String(walletBalance),
+        actualReadable: formatUSDC(Number(walletBalance)),
+        tier: gate.result.tier,
+        score: gate.result.score,
+      });
+      return;
+    }
+
     const session = await sessions.create(
       agentId,
       gate.result.tier,
       gate.result.score,
       gate.result.riskLevel,
       gate.policy,
+      walletAddress,
     );
 
     const response: ChannelOpenResponse = {
@@ -71,6 +117,8 @@ app.post("/channel/open/:agentId", async (req, res) => {
       durationSeconds: Math.round(
         (session.expiresAt.getTime() - session.createdAt.getTime()) / 1000,
       ),
+      walletVerified: true,
+      walletBalance: String(walletBalance),
     };
 
     res.json(response);

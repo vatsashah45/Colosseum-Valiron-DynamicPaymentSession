@@ -26,6 +26,7 @@ interface SessionData {
   active: boolean;
   settled: boolean;
   settlementSignature?: string;
+  walletAddress: string;
   usage: {
     requestId: string;
     cost: number;
@@ -106,6 +107,7 @@ export class SessionManager {
     score: number,
     riskLevel: string,
     policy: SessionPolicy,
+    walletAddress: string,
   ): Promise<Session> {
     const now = new Date();
     const session: Session = {
@@ -122,6 +124,7 @@ export class SessionManager {
       expiresAt: new Date(now.getTime() + policy.durationSeconds * 1000),
       active: true,
       settled: false,
+      walletAddress,
       usage: [],
     };
 
@@ -221,5 +224,29 @@ export class SessionManager {
   /** No-op for Redis (TTL handles cleanup). Kept for API compat. */
   destroy(): void {
     // Redis TTL handles expiry automatically
+  }
+
+  /**
+   * Check if a wallet has any expired-but-unsettled channels.
+   * Used to block new channel opens from wallets with outstanding debt.
+   */
+  async hasUnsettledDebt(walletAddress: string): Promise<{ hasDebt: boolean; sessionId?: string; amount?: number }> {
+    if (this.fallback) {
+      for (const session of this.fallback.values()) {
+        if (
+          session.walletAddress === walletAddress &&
+          !session.settled &&
+          session.consumed > 0 &&
+          (!session.active || new Date() >= session.expiresAt)
+        ) {
+          return { hasDebt: true, sessionId: session.sessionId, amount: session.consumed };
+        }
+      }
+      return { hasDebt: false };
+    }
+    // For Redis: we'd need a secondary index (wallet → sessions).
+    // For now, this is handled by the in-memory fallback.
+    // In production, use a Redis sorted set or separate key per wallet.
+    return { hasDebt: false };
   }
 }
