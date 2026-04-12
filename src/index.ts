@@ -15,6 +15,12 @@ import type {
 const app = express();
 app.use(express.json());
 
+// Expose WWW-Authenticate header to browser fetch
+app.use((_req, res, next) => {
+  res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate, Payment-Receipt");
+  next();
+});
+
 const sessions = new SessionManager();
 const mppx = createMppx();
 

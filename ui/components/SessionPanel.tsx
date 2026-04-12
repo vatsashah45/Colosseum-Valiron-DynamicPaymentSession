@@ -3,29 +3,36 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   getChannelStatus,
-  settleChannel,
   consume,
   type ChannelOpenResponse,
   type ChannelStatusResponse,
   type SettlementResponse,
+  type ConsumeResponse,
 } from "@/lib/api";
+import {
+  settleWithPayment,
+  type PaymentProgress,
+} from "@/lib/solana-payment";
 
 interface ChannelPanelProps {
   channel: ChannelOpenResponse;
   onSettled: () => void;
+  walletPublicKey: string | null;
+  signTransaction: <T>(tx: T) => Promise<T>;
 }
 
-export default function ChannelPanel({ channel, onSettled }: ChannelPanelProps) {
+export default function ChannelPanel({ channel, onSettled, walletPublicKey, signTransaction }: ChannelPanelProps) {
   const [status, setStatus] = useState<ChannelStatusResponse | null>(null);
   const [cost, setCost] = useState("0.50");
   const [desc, setDesc] = useState("API call");
   const [consuming, setConsuming] = useState(false);
   const [lastResult, setLastResult] = useState<{
     status: number;
-    data: Record<string, unknown>;
+    data: Record<string, unknown> | ConsumeResponse;
   } | null>(null);
   const [settling, setSettling] = useState(false);
   const [settlement, setSettlement] = useState<SettlementResponse | null>(null);
+  const [paymentProgress, setPaymentProgress] = useState<PaymentProgress | null>(null);
   const [logs, setLogs] = useState<
     { time: string; action: string; detail: string; ok: boolean }[]
   >([]);
@@ -79,30 +86,38 @@ export default function ChannelPanel({ channel, onSettled }: ChannelPanelProps) 
   }
 
   async function handleSettle() {
+    if (!walletPublicKey) {
+      addLog("SETTLE", "Connect your Phantom wallet first", false);
+      return;
+    }
     setSettling(true);
+    setPaymentProgress(null);
+    setLastResult(null);
     try {
-      const res = await settleChannel(channel.sessionId);
-      if (res.status === 200) {
-        const s = res.data as SettlementResponse;
+      const result = await settleWithPayment(
+        channel.sessionId,
+        walletPublicKey,
+        signTransaction,
+        (p) => setPaymentProgress(p),
+      );
+
+      if (result.success && result.settlement) {
+        const s = result.settlement;
         setSettlement(s);
         addLog(
           "SETTLE",
-          `Channel settled. Total: ${s.totalConsumedReadable} for ${s.requestsServed} requests`,
-          true
+          `Settled on-chain! ${s.totalConsumedReadable} USDC for ${s.requestsServed} requests`,
+          true,
         );
-      } else if (res.status === 402) {
-        addLog(
-          "SETTLE",
-          `402 — Settlement charge issued for total consumed (one payment)`,
-          true
-        );
-        setLastResult(res);
       } else {
-        addLog("SETTLE", `Failed: ${(res.data as { error?: string }).error}`, false);
+        addLog("SETTLE", result.error || "Settlement failed", false);
+        setLastResult({ status: 500, data: { error: result.error } });
       }
       refresh();
-    } catch {
-      addLog("SETTLE", "Failed to settle channel", false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Settlement failed";
+      addLog("SETTLE", msg, false);
+      setPaymentProgress({ step: "error", detail: msg });
     } finally {
       setSettling(false);
     }
@@ -210,10 +225,11 @@ export default function ChannelPanel({ channel, onSettled }: ChannelPanelProps) 
           <button
             type="button"
             onClick={handleSettle}
-            disabled={settling}
+            disabled={settling || !walletPublicKey}
+            title={!walletPublicKey ? "Connect Phantom wallet to settle" : "Settle & close channel"}
             className="px-5 py-2 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-30 font-medium transition-colors"
           >
-            {settling ? "…" : "Settle & Close"}
+            {settling ? "Settling…" : !walletPublicKey ? "Connect Wallet" : "Settle & Close"}
           </button>
         </form>
       )}
@@ -231,10 +247,31 @@ export default function ChannelPanel({ channel, onSettled }: ChannelPanelProps) 
         >
           <span className="text-white/40 mr-2">HTTP {lastResult.status}</span>
           {lastResult.status === 200 && "Service consumed — added to tab (no payment)"}
-          {lastResult.status === 402 && "Settlement charge issued (one-time payment for total tab)"}
           {lastResult.status === 403 && `Denied: ${(lastResult.data as { error?: string }).error}`}
           {lastResult.status === 410 && "Channel expired"}
           {lastResult.status === 429 && "Max requests reached"}
+          {lastResult.status === 500 && (lastResult.data as { error?: string }).error}
+        </div>
+      )}
+
+      {/* Payment Progress */}
+      {paymentProgress && !settlement && (
+        <div className={`rounded-lg p-3 text-sm font-mono ${
+          paymentProgress.step === "error"
+            ? "bg-red-500/10 border border-red-500/20 text-red-300"
+            : paymentProgress.step === "confirmed"
+            ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+            : "bg-blue-500/10 border border-blue-500/20 text-blue-300"
+        }`}>
+          <span className="text-white/40 mr-2">
+            {paymentProgress.step === "challenge" && "1/4"}
+            {paymentProgress.step === "building" && "2/4"}
+            {paymentProgress.step === "signing" && "3/4"}
+            {paymentProgress.step === "submitting" && "4/4"}
+            {paymentProgress.step === "confirmed" && "✓"}
+            {paymentProgress.step === "error" && "✗"}
+          </span>
+          {paymentProgress.detail}
         </div>
       )}
 
@@ -259,7 +296,7 @@ export default function ChannelPanel({ channel, onSettled }: ChannelPanelProps) 
             </div>
           </div>
           <p className="mt-2 text-xs text-blue-400/60">
-            One on-chain USDC settlement for the entire session — zero per-request friction.
+            Real on-chain USDC settlement on Solana mainnet — one transaction for the entire session.
           </p>
         </div>
       )}
