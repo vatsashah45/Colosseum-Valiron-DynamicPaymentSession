@@ -50,7 +50,7 @@ app.post("/channel/open/:agentId", async (req, res) => {
       return;
     }
 
-    const session = sessions.create(
+    const session = await sessions.create(
       agentId,
       gate.result.tier,
       gate.result.score,
@@ -86,7 +86,7 @@ app.post("/channel/open/:agentId", async (req, res) => {
 // ─── Consume ────────────────────────────────────────────────────────────────
 // Deduct from credit line. Instant 200. No payment friction.
 
-app.post("/channel/consume/:sessionId", (req, res) => {
+app.post("/channel/consume/:sessionId", async (req, res) => {
   const { sessionId } = req.params;
   const auth = req.headers.authorization;
 
@@ -107,9 +107,9 @@ app.post("/channel/consume/:sessionId", (req, res) => {
   const cost = Math.round(rawCost * 1_000_000);
 
   // Validate against channel constraints
-  const check = sessions.canConsume(sessionId, cost);
+  const check = await sessions.canConsume(sessionId, cost);
   if (!check.ok) {
-    const session = sessions.get(sessionId);
+    const session = await sessions.get(sessionId);
     res.status(check.code).json({
       error:
         check.code === 410 ? "channel_expired" :
@@ -125,7 +125,7 @@ app.post("/channel/consume/:sessionId", (req, res) => {
   }
 
   // Record usage — no payment here, just a tab
-  const session = sessions.recordUsage(sessionId, cost, description);
+  const session = await sessions.recordUsage(sessionId, cost, description);
   const remaining = session.creditLine - session.consumed;
 
   const response: ConsumeResponse = {
@@ -152,8 +152,8 @@ app.post("/channel/consume/:sessionId", (req, res) => {
 
 // ─── Channel Status ─────────────────────────────────────────────────────────
 
-app.get("/channel/status/:sessionId", (req, res) => {
-  const session = sessions.get(req.params.sessionId);
+app.get("/channel/status/:sessionId", async (req, res) => {
+  const session = await sessions.get(req.params.sessionId);
 
   if (!session) {
     res.status(404).json({ error: "not_found", message: "Channel not found." });
@@ -162,7 +162,10 @@ app.get("/channel/status/:sessionId", (req, res) => {
 
   const now = Date.now();
   const isExpired = now >= session.expiresAt.getTime();
-  if (isExpired) session.active = false;
+  if (isExpired && session.active) {
+    session.active = false;
+    await sessions.close(session.sessionId);
+  }
 
   const remaining = session.creditLine - session.consumed;
 
@@ -194,7 +197,7 @@ app.get("/channel/status/:sessionId", (req, res) => {
 // Close the channel and issue ONE settlement charge for total consumed.
 
 app.post("/channel/settle/:sessionId", async (req, res) => {
-  const session = sessions.get(req.params.sessionId);
+  const session = await sessions.get(req.params.sessionId);
 
   if (!session) {
     res.status(404).json({ error: "not_found", message: "Channel not found." });
@@ -207,13 +210,13 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
   }
 
   // Close the channel
-  sessions.close(session.sessionId);
+  await sessions.close(session.sessionId);
 
   const remaining = session.creditLine - session.consumed;
 
   // If nothing was consumed, no payment needed
   if (session.consumed === 0) {
-    sessions.settle(session.sessionId);
+    await sessions.settle(session.sessionId);
     const response: SettlementResponse = {
       sessionId: session.sessionId,
       settled: true,
@@ -247,7 +250,7 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
   }
 
   // Payment verified — mark settled
-  sessions.settle(session.sessionId);
+  await sessions.settle(session.sessionId);
 
   const response: SettlementResponse = {
     sessionId: session.sessionId,
