@@ -13,247 +13,112 @@ import {
 } from "@solana/spl-token";
 
 const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const USDC_DECIMALS = 6;
 
-// ─── Parse the MPP 402 challenge ────────────────────────────────────────────
+// ─── Escrow Deposit ─────────────────────────────────────────────────────────
+// Build a USDC transfer from agent wallet to the escrow wallet,
+// sign with Phantom, submit on-chain, return the tx signature.
 
-interface MppChallenge {
-  id: string;
-  realm: string;
-  method: string;
-  intent: string;
-  request: string; // base64url-encoded JSON
-  expires?: string;
-  digest?: string;
-  opaque?: string;
-  [key: string]: string | undefined;
-}
-
-interface PaymentRequest {
-  amount: string;
-  currency: string; // USDC mint address
-  recipient: string;
-  description?: string;
-  methodDetails?: {
-    decimals?: number;
-    network?: string;
-    feePayer?: boolean;
-    tokenProgram?: string;
-    recentBlockhash?: string;
-  };
-}
-
-/**
- * Parse WWW-Authenticate header from a 402 response.
- * Format: Payment key="value", key="value", ...
- */
-function parseWWWAuthenticate(header: string): MppChallenge {
-  const rest = header.replace(/^Payment\s+/i, "");
-  const params: Record<string, string> = {};
-  const regex = /(\w+)="([^"]*)"/g;
-  let match;
-  while ((match = regex.exec(rest)) !== null) {
-    params[match[1]] = match[2];
-  }
-  return params as unknown as MppChallenge;
-}
-
-/** Decode base64url string */
-function base64urlDecode(str: string): string {
-  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
-  while (base64.length % 4) base64 += "=";
-  return atob(base64);
-}
-
-/** Encode to base64url */
-function base64urlEncode(str: string): string {
-  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-// ─── Build and sign the USDC transfer ───────────────────────────────────────
-
-export interface SettlePaymentResult {
-  success: boolean;
-  txSignature?: string;
-  settlement?: {
-    sessionId: string;
-    settled: boolean;
-    totalConsumed: string;
-    totalConsumedReadable: string;
-    requestsServed: number;
-    unusedCredit: string;
-    unusedCreditReadable: string;
-  };
-  error?: string;
-}
-
-export type PaymentProgress =
-  | { step: "challenge"; detail: string }
+export type DepositProgress =
   | { step: "building"; detail: string }
   | { step: "signing"; detail: string }
   | { step: "submitting"; detail: string }
   | { step: "confirmed"; detail: string; txSignature: string }
   | { step: "error"; detail: string };
 
+export interface DepositResult {
+  success: boolean;
+  txSignature?: string;
+  error?: string;
+}
+
 /**
- * Full settlement flow:
- * 1. Call settle → get 402 with MPP challenge
- * 2. Parse challenge → extract payment details
- * 3. Build USDC SPL transfer transaction
- * 4. Sign with Phantom (don't broadcast)
- * 5. Format MPP credential (pull mode)
- * 6. Retry settle with Authorization header
- * 7. Server broadcasts, verifies, returns 200
+ * Deposit USDC into the escrow wallet.
+ * Called after preflight to lock the credit line before opening a channel.
+ *
+ * @param escrowAddress  The escrow wallet public key (from server)
+ * @param amountBaseUnits  Credit line amount in USDC base units (6 decimals)
+ * @param walletPublicKey  Agent's wallet public key
+ * @param signTransaction  Phantom's signTransaction function
+ * @param onProgress  Optional progress callback
  */
-export async function settleWithPayment(
-  sessionId: string,
+export async function depositToEscrow(
+  escrowAddress: string,
+  amountBaseUnits: string,
   walletPublicKey: string,
   signTransaction: <T>(tx: T) => Promise<T>,
-  onProgress?: (p: PaymentProgress) => void,
-): Promise<SettlePaymentResult> {
-  const settleUrl = `/api/channel/settle/${sessionId}`;
+  onProgress?: (p: DepositProgress) => void,
+): Promise<DepositResult> {
+  const amount = BigInt(amountBaseUnits);
+  const amountReadable = `$${(Number(amount) / 10 ** USDC_DECIMALS).toFixed(2)}`;
 
-  // Step 1: Call settle to get the 402 challenge
-  onProgress?.({ step: "challenge", detail: "Requesting settlement challenge…" });
-  const challengeRes = await fetch(settleUrl, { method: "POST" });
-
-  if (challengeRes.status === 200) {
-    // Already settled or no payment needed
-    const data = await challengeRes.json();
-    return { success: true, settlement: data };
-  }
-
-  if (challengeRes.status !== 402) {
-    const data = await challengeRes.json().catch(() => ({}));
-    return {
-      success: false,
-      error: (data as { message?: string }).message || `Unexpected status ${challengeRes.status}`,
-    };
-  }
-
-  // Step 2: Parse the 402 challenge
-  const authHeader = challengeRes.headers.get("WWW-Authenticate");
-  if (!authHeader) {
-    return { success: false, error: "No WWW-Authenticate header in 402 response" };
-  }
-
-  const challenge = parseWWWAuthenticate(authHeader);
-  const requestJson = base64urlDecode(challenge.request);
-  const paymentRequest: PaymentRequest = JSON.parse(requestJson);
-
-  const amountBaseUnits = BigInt(paymentRequest.amount);
-  const recipientAddr = paymentRequest.recipient;
-  const mintAddr = paymentRequest.currency;
-  const decimals = paymentRequest.methodDetails?.decimals ?? 6;
-
-  const amountReadable = `$${(Number(amountBaseUnits) / 10 ** decimals).toFixed(2)}`;
   onProgress?.({
     step: "building",
-    detail: `Building USDC transfer: ${amountReadable} to ${recipientAddr.slice(0, 8)}…`,
+    detail: `Building USDC deposit: ${amountReadable} to escrow ${escrowAddress.slice(0, 8)}…`,
   });
 
-  // Step 3: Build the USDC SPL transfer
-  const connection = new Connection(MAINNET_RPC, "confirmed");
-  const payer = new PublicKey(walletPublicKey);
-  const mint = new PublicKey(mintAddr);
-  const recipient = new PublicKey(recipientAddr);
+  try {
+    const connection = new Connection(MAINNET_RPC, "confirmed");
+    const payer = new PublicKey(walletPublicKey);
+    const mint = new PublicKey(USDC_MINT);
+    const escrow = new PublicKey(escrowAddress);
 
-  const payerATA = getAssociatedTokenAddressSync(mint, payer, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
-  const recipientATA = getAssociatedTokenAddressSync(mint, recipient, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
-
-  const instructions: TransactionInstruction[] = [];
-
-  // Check if recipient ATA exists; if not, create it (payer pays)
-  const recipientAtaInfo = await connection.getAccountInfo(recipientATA);
-  if (!recipientAtaInfo) {
-    instructions.push(
-      createAssociatedTokenAccountInstruction(payer, recipientATA, recipient, mint),
+    const payerATA = getAssociatedTokenAddressSync(
+      mint, payer, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
     );
-  }
+    const escrowATA = getAssociatedTokenAddressSync(
+      mint, escrow, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
 
-  // SPL token transfer (checked)
-  instructions.push(
-    createTransferCheckedInstruction(
-      payerATA,
-      mint,
-      recipientATA,
-      payer,
-      amountBaseUnits,
-      decimals,
-    ),
-  );
+    const instructions: TransactionInstruction[] = [];
 
-  const tx = new Transaction().add(...instructions);
+    // Create escrow ATA if it doesn't exist (payer pays rent)
+    const escrowAtaInfo = await connection.getAccountInfo(escrowATA);
+    if (!escrowAtaInfo) {
+      instructions.push(
+        createAssociatedTokenAccountInstruction(payer, escrowATA, escrow, mint),
+      );
+    }
 
-  // Use the blockhash from the MPP challenge if provided, otherwise fetch fresh
-  const challengeBlockhash = paymentRequest.methodDetails?.recentBlockhash;
-  if (challengeBlockhash) {
-    tx.recentBlockhash = challengeBlockhash;
-  } else {
+    // USDC transfer: agent → escrow
+    instructions.push(
+      createTransferCheckedInstruction(
+        payerATA, mint, escrowATA, payer,
+        amount, USDC_DECIMALS,
+      ),
+    );
+
+    const tx = new Transaction().add(...instructions);
     const { blockhash } = await connection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;
-  }
-  tx.feePayer = payer;
+    tx.feePayer = payer;
 
-  // Step 4: Sign with Phantom (pull mode — don't broadcast)
-  onProgress?.({ step: "signing", detail: "Waiting for wallet signature…" });
-  const signedTx = await signTransaction(tx);
+    // Sign with Phantom
+    onProgress?.({ step: "signing", detail: "Waiting for wallet signature…" });
+    const signedTx = await signTransaction(tx);
 
-  // Serialize the signed transaction
-  const txBytes = (signedTx as Transaction).serialize();
-  const txBase64 = btoa(String.fromCharCode(...txBytes));
+    // Submit on-chain
+    onProgress?.({ step: "submitting", detail: "Submitting deposit to Solana…" });
+    const rawTx = (signedTx as Transaction).serialize();
+    const txSignature = await connection.sendRawTransaction(rawTx, {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+    });
 
-  // Step 5: Format MPP credential
-  onProgress?.({ step: "submitting", detail: "Submitting payment to server…" });
-
-  const credential = {
-    challenge: {
-      id: challenge.id,
-      realm: challenge.realm,
-      method: challenge.method,
-      intent: challenge.intent,
-      request: challenge.request,
-      ...(challenge.expires ? { expires: challenge.expires } : {}),
-      ...(challenge.digest ? { digest: challenge.digest } : {}),
-      ...(challenge.opaque ? { opaque: challenge.opaque } : {}),
-    },
-    payload: {
-      type: "transaction",
-      transaction: txBase64,
-    },
-  };
-
-  const credentialEncoded = base64urlEncode(JSON.stringify(credential));
-
-  // Step 6: Retry settle with the credential
-  const settleRes = await fetch(settleUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Payment ${credentialEncoded}`,
-    },
-  });
-
-  if (settleRes.status === 200) {
-    const data = await settleRes.json();
-
-    // Extract tx signature from the signed transaction
-    const sig = (signedTx as Transaction).signature;
-    const txSignature = sig ? btoa(String.fromCharCode(...sig)) : undefined;
+    // Wait for confirmation
+    await connection.confirmTransaction(txSignature, "confirmed");
 
     onProgress?.({
       step: "confirmed",
-      detail: `Payment confirmed! ${amountReadable} USDC settled on-chain`,
-      txSignature: txSignature || "",
+      detail: `Deposit confirmed! ${amountReadable} USDC escrowed on-chain`,
+      txSignature,
     });
 
-    return { success: true, txSignature, settlement: data };
+    return { success: true, txSignature };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    onProgress?.({ step: "error", detail: msg });
+    return { success: false, error: msg };
   }
-
-  // If still 402 or other error
-  const errorData = await settleRes.json().catch(() => ({}));
-  const errorMsg = (errorData as { message?: string; detail?: string }).detail
-    || (errorData as { message?: string }).message
-    || `Settlement failed with status ${settleRes.status}`;
-
-  onProgress?.({ step: "error", detail: errorMsg });
-  return { success: false, error: errorMsg };
 }

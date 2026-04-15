@@ -27,6 +27,7 @@ interface SessionData {
   settled: boolean;
   settlementSignature?: string;
   walletAddress: string;
+  depositSignature: string;
   usage: {
     requestId: string;
     cost: number;
@@ -108,6 +109,7 @@ export class SessionManager {
     riskLevel: string,
     policy: SessionPolicy,
     walletAddress: string,
+    depositSignature: string,
   ): Promise<Session> {
     const now = new Date();
     const session: Session = {
@@ -125,6 +127,7 @@ export class SessionManager {
       active: true,
       settled: false,
       walletAddress,
+      depositSignature,
       usage: [],
     };
 

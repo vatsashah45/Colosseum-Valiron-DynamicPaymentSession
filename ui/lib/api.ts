@@ -1,5 +1,17 @@
 const API = "/api";
 
+export interface PreflightResponse {
+  agentId: string;
+  tier: string;
+  score: number;
+  riskLevel: string;
+  creditLine: string;
+  creditLineReadable: string;
+  maxRequests: number | null;
+  durationSeconds: number;
+  escrowAddress: string;
+}
+
 export interface ChannelOpenResponse {
   sessionId: string;
   agentId: string;
@@ -11,8 +23,9 @@ export interface ChannelOpenResponse {
   maxRequests: number | null;
   expiresAt: string;
   durationSeconds: number;
-  walletVerified: boolean;
-  walletBalance: string;
+  depositConfirmed: boolean;
+  depositSignature: string;
+  escrowAddress: string;
 }
 
 export interface ConsumeResponse {
@@ -57,6 +70,9 @@ export interface SettlementResponse {
   requestsServed: number;
   unusedCredit: string;
   unusedCreditReadable: string;
+  refundAmount?: string;
+  refundReadable?: string;
+  refundSignature?: string;
 }
 
 export interface ErrorResponse {
@@ -67,14 +83,31 @@ export interface ErrorResponse {
   message: string;
 }
 
-export async function openChannel(agentId: string, walletAddress?: string): Promise<{
+export async function preflightChannel(agentId: string, walletAddress: string): Promise<{
+  status: number;
+  data: PreflightResponse | ErrorResponse;
+}> {
+  const res = await fetch(`${API}/channel/preflight/${agentId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ walletAddress }),
+  });
+  const data = await res.json();
+  return { status: res.status, data };
+}
+
+export async function openChannel(
+  agentId: string,
+  walletAddress: string,
+  depositSignature: string,
+): Promise<{
   status: number;
   data: ChannelOpenResponse | ErrorResponse;
 }> {
   const res = await fetch(`${API}/channel/open/${agentId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ walletAddress }),
+    body: JSON.stringify({ walletAddress, depositSignature }),
   });
   const data = await res.json();
   return { status: res.status, data };

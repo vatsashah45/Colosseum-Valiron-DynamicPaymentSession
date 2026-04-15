@@ -1,12 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { openChannel, type ChannelOpenResponse, type ErrorResponse } from "@/lib/api";
+import {
+  preflightChannel,
+  openChannel,
+  type PreflightResponse,
+  type ChannelOpenResponse,
+  type ErrorResponse,
+} from "@/lib/api";
+import {
+  depositToEscrow,
+  type DepositProgress,
+} from "@/lib/solana-payment";
 
 interface AgentLookupProps {
   onChannelOpened: (channel: ChannelOpenResponse) => void;
   prefillAgent?: string;
   walletAddress?: string | null;
+  signTransaction: <T>(tx: T) => Promise<T>;
 }
 
 const TIER_COLORS: Record<string, string> = {
@@ -25,23 +36,24 @@ const RISK_COLORS: Record<string, string> = {
   RED: "text-red-500",
 };
 
-export default function AgentLookup({ onChannelOpened, prefillAgent, walletAddress }: AgentLookupProps) {
+export default function AgentLookup({ onChannelOpened, prefillAgent, walletAddress, signTransaction }: AgentLookupProps) {
   const [agentId, setAgentId] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{
-    status: number;
-    data: ChannelOpenResponse | ErrorResponse;
-  } | null>(null);
+  const [depositing, setDepositing] = useState(false);
+  const [depositProgress, setDepositProgress] = useState<DepositProgress | null>(null);
+  const [error, setError] = useState<{ status: number; data: ErrorResponse } | null>(null);
+  const [preflight, setPreflight] = useState<PreflightResponse | null>(null);
 
   useEffect(() => {
     if (prefillAgent) setAgentId(prefillAgent);
   }, [prefillAgent]);
 
-  async function handleOpen(e: React.FormEvent) {
+  // Step 1: Gate check (preflight)
+  async function handlePreflight(e: React.FormEvent) {
     e.preventDefault();
     if (!agentId.trim()) return;
     if (!walletAddress) {
-      setResult({
+      setError({
         status: 0,
         data: {
           error: "wallet_required",
@@ -51,15 +63,18 @@ export default function AgentLookup({ onChannelOpened, prefillAgent, walletAddre
       return;
     }
     setLoading(true);
-    setResult(null);
+    setError(null);
+    setPreflight(null);
+    setDepositProgress(null);
     try {
-      const res = await openChannel(agentId.trim(), walletAddress);
-      setResult(res);
+      const res = await preflightChannel(agentId.trim(), walletAddress);
       if (res.status === 200) {
-        onChannelOpened(res.data as ChannelOpenResponse);
+        setPreflight(res.data as PreflightResponse);
+      } else {
+        setError({ status: res.status, data: res.data as ErrorResponse });
       }
     } catch {
-      setResult({
+      setError({
         status: 0,
         data: {
           error: "connection_failed",
@@ -71,85 +86,205 @@ export default function AgentLookup({ onChannelOpened, prefillAgent, walletAddre
     }
   }
 
-  const isSuccess = result?.status === 200;
-  const data = result?.data;
+  // Step 2: Deposit to escrow + open channel
+  async function handleDeposit() {
+    if (!preflight || !walletAddress) return;
+    setDepositing(true);
+    setDepositProgress(null);
+    setError(null);
+
+    try {
+      // Build and sign the USDC deposit via Phantom
+      const result = await depositToEscrow(
+        preflight.escrowAddress,
+        preflight.creditLine,
+        walletAddress,
+        signTransaction,
+        (p) => setDepositProgress(p),
+      );
+
+      if (!result.success || !result.txSignature) {
+        setError({
+          status: 0,
+          data: {
+            error: "deposit_failed",
+            message: result.error || "Escrow deposit failed.",
+          },
+        });
+        setDepositing(false);
+        return;
+      }
+
+      // Open channel with the deposit signature
+      setDepositProgress({
+        step: "submitting",
+        detail: "Verifying deposit and opening channel…",
+      });
+
+      const openRes = await openChannel(agentId.trim(), walletAddress, result.txSignature);
+
+      if (openRes.status === 200) {
+        setDepositProgress({
+          step: "confirmed",
+          detail: "Channel opened with escrowed deposit!",
+          txSignature: result.txSignature,
+        });
+        onChannelOpened(openRes.data as ChannelOpenResponse);
+        setPreflight(null);
+      } else {
+        setError({ status: openRes.status, data: openRes.data as ErrorResponse });
+      }
+    } catch (err) {
+      setError({
+        status: 0,
+        data: {
+          error: "deposit_failed",
+          message: err instanceof Error ? err.message : "Deposit failed.",
+        },
+      });
+    } finally {
+      setDepositing(false);
+    }
+  }
+
+  function handleReset() {
+    setPreflight(null);
+    setError(null);
+    setDepositProgress(null);
+  }
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6">
       <h2 className="text-lg font-semibold mb-4">Open Payment Channel</h2>
 
-      <form onSubmit={handleOpen} className="flex gap-3 mb-4">
+      {/* Step 1: Agent ID input */}
+      <form onSubmit={handlePreflight} className="flex gap-3 mb-4">
         <input
           type="text"
           value={agentId}
           onChange={(e) => setAgentId(e.target.value)}
           placeholder="Enter agent ID (e.g. 1253)"
-          className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 font-mono"
+          disabled={!!preflight}
+          className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 font-mono disabled:opacity-50"
         />
-        <button
-          type="submit"
-          disabled={loading || !agentId.trim()}
-          className="px-6 py-2.5 rounded-lg bg-white/10 hover:bg-white/15 disabled:opacity-30 disabled:cursor-not-allowed font-medium transition-colors"
-        >
-          {loading ? (
-            <span className="inline-block animate-spin">⟳</span>
-          ) : (
-            "Gate & Open"
-          )}
-        </button>
+        {!preflight ? (
+          <button
+            type="submit"
+            disabled={loading || !agentId.trim()}
+            className="px-6 py-2.5 rounded-lg bg-white/10 hover:bg-white/15 disabled:opacity-30 disabled:cursor-not-allowed font-medium transition-colors"
+          >
+            {loading ? (
+              <span className="inline-block animate-spin">⟳</span>
+            ) : (
+              "Gate Check"
+            )}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleReset}
+            className="px-4 py-2.5 rounded-lg bg-white/5 text-white/40 hover:bg-white/10 transition-colors text-sm"
+          >
+            Reset
+          </button>
+        )}
       </form>
 
-      {result && !isSuccess && data && (
-        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4">
+      {/* Error Display */}
+      {error && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-red-400 font-semibold text-sm uppercase tracking-wider">
-              {(data as ErrorResponse).error === "agent_rejected"
+              {error.data.error === "agent_rejected"
                 ? "Rejected"
-                : (data as ErrorResponse).error === "insufficient_balance"
+                : error.data.error === "insufficient_balance"
                 ? "Insufficient USDC"
-                : (data as ErrorResponse).error === "unsettled_debt"
+                : error.data.error === "unsettled_debt"
                 ? "Unsettled Debt"
-                : (data as ErrorResponse).error === "wallet_required"
+                : error.data.error === "wallet_required"
                 ? "Wallet Required"
+                : error.data.error === "deposit_failed"
+                ? "Deposit Failed"
+                : error.data.error === "deposit_invalid"
+                ? "Deposit Invalid"
                 : "Error"}
             </span>
-            <span className="text-white/30 text-xs">HTTP {result.status}</span>
+            {error.status > 0 && (
+              <span className="text-white/30 text-xs">HTTP {error.status}</span>
+            )}
           </div>
-          <p className="text-white/70 text-sm">{(data as ErrorResponse).message}</p>
-          {(data as ErrorResponse).score !== undefined && (
+          <p className="text-white/70 text-sm">{error.data.message}</p>
+          {error.data.score !== undefined && (
             <div className="mt-3 flex gap-4 text-xs text-white/50">
-              <span>Score: <span className="text-white/80 font-mono">{(data as ErrorResponse).score}</span></span>
-              {(data as ErrorResponse).tier && <span>Tier: <span className="text-white/80 font-mono">{(data as ErrorResponse).tier}</span></span>}
-              {(data as ErrorResponse).riskLevel && <span>Risk: <span className={RISK_COLORS[(data as ErrorResponse).riskLevel!] || "text-white/80"}>{(data as ErrorResponse).riskLevel}</span></span>}
+              <span>Score: <span className="text-white/80 font-mono">{error.data.score}</span></span>
+              {error.data.tier && <span>Tier: <span className="text-white/80 font-mono">{error.data.tier}</span></span>}
+              {error.data.riskLevel && <span>Risk: <span className={RISK_COLORS[error.data.riskLevel] || "text-white/80"}>{error.data.riskLevel}</span></span>}
             </div>
           )}
         </div>
       )}
 
-      {result && isSuccess && data && (() => {
-        const ch = data as ChannelOpenResponse;
-        return (
-          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-emerald-400 font-semibold text-sm uppercase tracking-wider">
-                Channel Opened
-              </span>
-              <span className="text-white/30 text-xs font-mono">{ch.sessionId.slice(0, 8)}…</span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Stat label="Score" value={String(ch.score)} />
-              <Stat label="Tier" value={ch.tier} className={TIER_COLORS[ch.tier] || ""} />
-              <Stat label="Risk" value={ch.riskLevel} className={RISK_COLORS[ch.riskLevel] || ""} />
-              <Stat label="Credit Line" value={ch.creditLineReadable} />
-              <Stat label="Duration" value={`${Math.round(ch.durationSeconds / 60)} min`} />
-              <Stat label="Max Requests" value={ch.maxRequests === null ? "Unlimited" : String(ch.maxRequests)} />
-            </div>
-            <p className="mt-3 text-xs text-emerald-400/60">
-              Wallet verified — USDC balance covers credit line. Consume services freely, settle when done.
-            </p>
+      {/* Step 2: Preflight result — show tier info + deposit button */}
+      {preflight && (
+        <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-blue-400 font-semibold text-sm uppercase tracking-wider">
+              Gate Passed — Deposit Required
+            </span>
           </div>
-        );
-      })()}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <Stat label="Score" value={String(preflight.score)} />
+            <Stat label="Tier" value={preflight.tier} className={TIER_COLORS[preflight.tier] || ""} />
+            <Stat label="Risk" value={preflight.riskLevel} className={RISK_COLORS[preflight.riskLevel] || ""} />
+            <Stat label="Credit Line" value={preflight.creditLineReadable} />
+            <Stat label="Duration" value={`${Math.round(preflight.durationSeconds / 60)} min`} />
+            <Stat label="Max Requests" value={preflight.maxRequests === null ? "Unlimited" : String(preflight.maxRequests)} />
+            <Stat label="Escrow" value={`${preflight.escrowAddress.slice(0, 4)}…${preflight.escrowAddress.slice(-4)}`} />
+          </div>
+          <p className="text-xs text-blue-400/60 mb-4">
+            Deposit {preflight.creditLineReadable} USDC into escrow to open the channel. Unused credit is refunded at settlement.
+          </p>
+          <button
+            onClick={handleDeposit}
+            disabled={depositing}
+            className="w-full px-6 py-3 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50 font-semibold transition-colors"
+          >
+            {depositing ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="inline-block animate-spin">⟳</span>
+                Depositing…
+              </span>
+            ) : (
+              `Deposit ${preflight.creditLineReadable} USDC & Open Channel`
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Deposit Progress */}
+      {depositProgress && (
+        <div className={`rounded-lg p-3 text-sm font-mono ${
+          depositProgress.step === "error"
+            ? "bg-red-500/10 border border-red-500/20 text-red-300"
+            : depositProgress.step === "confirmed"
+            ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+            : "bg-blue-500/10 border border-blue-500/20 text-blue-300"
+        }`}>
+          <span className="text-white/40 mr-2">
+            {depositProgress.step === "building" && "1/3"}
+            {depositProgress.step === "signing" && "2/3"}
+            {depositProgress.step === "submitting" && "3/3"}
+            {depositProgress.step === "confirmed" && "✓"}
+            {depositProgress.step === "error" && "✗"}
+          </span>
+          {depositProgress.detail}
+          {depositProgress.step === "confirmed" && "txSignature" in depositProgress && (
+            <span className="block text-xs text-white/30 mt-1 break-all">
+              tx: {depositProgress.txSignature}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

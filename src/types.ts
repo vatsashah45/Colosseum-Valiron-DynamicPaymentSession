@@ -34,10 +34,23 @@ export interface Session {
   settled: boolean;
   settlementSignature?: string;
   walletAddress: string;
+  depositSignature: string;
   usage: UsageRecord[];
 }
 
 // ─── API Response Types ─────────────────────────────────────────────────────
+
+export interface PreflightResponse {
+  agentId: string;
+  tier: string;
+  score: number;
+  riskLevel: string;
+  creditLine: string;
+  creditLineReadable: string;
+  maxRequests: number | null;
+  durationSeconds: number;
+  escrowAddress: string;
+}
 
 export interface ChannelOpenResponse {
   sessionId: string;
@@ -50,8 +63,9 @@ export interface ChannelOpenResponse {
   maxRequests: number | null;
   expiresAt: string;
   durationSeconds: number;
-  walletVerified: boolean;
-  walletBalance: string;
+  depositConfirmed: boolean;
+  depositSignature: string;
+  escrowAddress: string;
 }
 
 export interface ConsumeResponse {
@@ -96,7 +110,9 @@ export interface SettlementResponse {
   requestsServed: number;
   unusedCredit: string;
   unusedCreditReadable: string;
-  settlementChallenge?: Record<string, unknown>;
+  refundAmount?: string;
+  refundReadable?: string;
+  refundSignature?: string;
 }
 
 export interface GateCheckResult {

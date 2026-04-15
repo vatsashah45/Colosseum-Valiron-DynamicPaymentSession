@@ -1,12 +1,12 @@
 import "dotenv/config";
 import express from "express";
-import { Mppx } from "@solana/mpp/server";
 import { CONFIG, formatUSDC } from "./config.js";
 import { gateAgent } from "./gate.js";
-import { createMppx } from "./payment.js";
 import { getUsdcBalance } from "./solana-rpc.js";
+import { getEscrowAddress, verifyDeposit, sendRefund } from "./escrow.js";
 import { SessionManager } from "./session-manager.js";
 import type {
+  PreflightResponse,
   ChannelOpenResponse,
   ConsumeResponse,
   ChannelStatusResponse,
@@ -23,25 +23,37 @@ app.use((_req, res, next) => {
 });
 
 const sessions = new SessionManager();
-const mppx = createMppx();
 
 // ─── Health ─────────────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "dynamic-payment-channels" });
+  res.json({
+    status: "ok",
+    service: "dynamic-payment-channels",
+    escrowAddress: getEscrowAddress(),
+  });
 });
 
-// ─── Open Channel ───────────────────────────────────────────────────────────
-// Gate check → create channel with trust-derived credit line. No payment yet.
+// ─── Preflight: gate-only check ─────────────────────────────────────────────
+// Returns tier, credit line, escrow address. No session created.
 
-app.post("/channel/open/:agentId", async (req, res) => {
+app.post("/channel/preflight/:agentId", async (req, res) => {
   const { agentId } = req.params;
   const walletAddress = req.body?.walletAddress as string | undefined;
 
   if (!walletAddress) {
     res.status(400).json({
       error: "wallet_required",
-      message: "walletAddress is required to open a channel.",
+      message: "walletAddress is required.",
+    });
+    return;
+  }
+
+  const escrowAddress = getEscrowAddress();
+  if (!escrowAddress) {
+    res.status(503).json({
+      error: "escrow_not_configured",
+      message: "Escrow wallet is not configured on the server.",
     });
     return;
   }
@@ -84,13 +96,100 @@ app.post("/channel/open/:agentId", async (req, res) => {
     if (walletBalance < BigInt(gate.policy.creditLine)) {
       res.status(402).json({
         error: "insufficient_balance",
-        message: "Wallet does not have enough USDC to cover the credit line.",
+        message: "Wallet does not have enough USDC to cover the credit line deposit.",
         requiredBalance: String(gate.policy.creditLine),
         requiredReadable: formatUSDC(gate.policy.creditLine),
         actualBalance: String(walletBalance),
         actualReadable: formatUSDC(Number(walletBalance)),
         tier: gate.result.tier,
         score: gate.result.score,
+      });
+      return;
+    }
+
+    const response: PreflightResponse = {
+      agentId,
+      tier: gate.result.tier,
+      score: gate.result.score,
+      riskLevel: gate.result.riskLevel,
+      creditLine: String(gate.policy.creditLine),
+      creditLineReadable: formatUSDC(gate.policy.creditLine),
+      maxRequests: gate.policy.maxRequests,
+      durationSeconds: gate.policy.durationSeconds,
+      escrowAddress,
+    };
+
+    res.json(response);
+  } catch (err) {
+    console.error("Gate error:", err);
+    res.status(502).json({
+      error: "gate_unavailable",
+      message: "Could not reach Valiron trust service.",
+    });
+  }
+});
+
+// ─── Open Channel ───────────────────────────────────────────────────────────
+// Verify escrow deposit on-chain → create channel.
+
+app.post("/channel/open/:agentId", async (req, res) => {
+  const { agentId } = req.params;
+  const walletAddress = req.body?.walletAddress as string | undefined;
+  const depositSignature = req.body?.depositSignature as string | undefined;
+
+  if (!walletAddress) {
+    res.status(400).json({
+      error: "wallet_required",
+      message: "walletAddress is required to open a channel.",
+    });
+    return;
+  }
+
+  if (!depositSignature) {
+    res.status(400).json({
+      error: "deposit_required",
+      message: "depositSignature is required. Use /channel/preflight/:agentId first to get escrow details, then deposit USDC.",
+    });
+    return;
+  }
+
+  const escrowAddress = getEscrowAddress();
+  if (!escrowAddress) {
+    res.status(503).json({
+      error: "escrow_not_configured",
+      message: "Escrow wallet is not configured on the server.",
+    });
+    return;
+  }
+
+  try {
+    const gate = await gateAgent(agentId);
+
+    if (!gate.allowed || !gate.policy) {
+      res.status(403).json({
+        error: "agent_rejected",
+        score: gate.result.score,
+        tier: gate.result.tier,
+        riskLevel: gate.result.riskLevel,
+        message: "Agent does not meet minimum trust threshold.",
+      });
+      return;
+    }
+
+    // Verify the escrow deposit on-chain
+    const deposit = await verifyDeposit(
+      depositSignature,
+      gate.policy.creditLine,
+      walletAddress,
+    );
+
+    if (!deposit.verified) {
+      res.status(402).json({
+        error: "deposit_invalid",
+        message: deposit.error || "Escrow deposit could not be verified.",
+        requiredAmount: String(gate.policy.creditLine),
+        requiredReadable: formatUSDC(gate.policy.creditLine),
+        escrowAddress,
       });
       return;
     }
@@ -102,6 +201,7 @@ app.post("/channel/open/:agentId", async (req, res) => {
       gate.result.riskLevel,
       gate.policy,
       walletAddress,
+      depositSignature,
     );
 
     const response: ChannelOpenResponse = {
@@ -117,13 +217,14 @@ app.post("/channel/open/:agentId", async (req, res) => {
       durationSeconds: Math.round(
         (session.expiresAt.getTime() - session.createdAt.getTime()) / 1000,
       ),
-      walletVerified: true,
-      walletBalance: String(walletBalance),
+      depositConfirmed: true,
+      depositSignature,
+      escrowAddress,
     };
 
     res.json(response);
   } catch (err) {
-    console.error("Gate error:", err);
+    console.error("Open error:", err);
     res.status(502).json({
       error: "gate_unavailable",
       message: "Could not reach Valiron trust service.",
@@ -242,7 +343,8 @@ app.get("/channel/status/:sessionId", async (req, res) => {
 });
 
 // ─── Settle & Close ─────────────────────────────────────────────────────────
-// Close the channel and issue ONE settlement charge for total consumed.
+// Close the channel. Provider keeps consumed portion from escrow.
+// Server refunds unused USDC back to the agent's wallet.
 
 app.post("/channel/settle/:sessionId", async (req, res) => {
   const session = await sessions.get(req.params.sessionId);
@@ -262,9 +364,21 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
 
   const remaining = session.creditLine - session.consumed;
 
-  // If nothing was consumed, no payment needed
+  // If nothing was consumed, full refund
   if (session.consumed === 0) {
-    await sessions.settle(session.sessionId);
+    const refundResult = await sendRefund(session.walletAddress, session.creditLine);
+
+    if ("error" in refundResult) {
+      console.error("Full refund failed:", refundResult.error);
+      res.status(500).json({
+        error: "refund_failed",
+        message: refundResult.error,
+      });
+      return;
+    }
+
+    await sessions.settle(session.sessionId, refundResult.signature);
+
     const response: SettlementResponse = {
       sessionId: session.sessionId,
       settled: true,
@@ -273,31 +387,46 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
       requestsServed: 0,
       unusedCredit: String(session.creditLine),
       unusedCreditReadable: formatUSDC(session.creditLine),
+      refundAmount: String(session.creditLine),
+      refundReadable: formatUSDC(session.creditLine),
+      refundSignature: refundResult.signature,
     };
     res.json(response);
     return;
   }
 
-  // Issue ONE settlement charge via MPP for total consumed
-  const chargeHandler = Mppx.toNodeListener(
-    mppx.solana.charge({
-      amount: String(session.consumed),
-      currency: CONFIG.solana.usdcMint,
-      description: `Settlement: ${session.requestCount} requests on channel ${session.sessionId}`,
-    }),
-  );
+  // Partial refund: return unused credit, keep consumed portion
+  if (remaining > 0) {
+    const refundResult = await sendRefund(session.walletAddress, remaining);
 
-  const result = await chargeHandler(req, res);
+    if ("error" in refundResult) {
+      console.error("Refund failed:", refundResult.error);
+      res.status(500).json({
+        error: "refund_failed",
+        message: refundResult.error,
+      });
+      return;
+    }
 
-  if (result.status === 402) {
-    // 402 with payment challenge — agent needs to pay this ONE charge
-    // Don't mark as settled yet; they'll call again with receipt
-    // Re-open channel so they can retry settlement
-    session.active = false; // keep closed, but not settled
+    await sessions.settle(session.sessionId, refundResult.signature);
+
+    const response: SettlementResponse = {
+      sessionId: session.sessionId,
+      settled: true,
+      totalConsumed: String(session.consumed),
+      totalConsumedReadable: formatUSDC(session.consumed),
+      requestsServed: session.requestCount,
+      unusedCredit: String(remaining),
+      unusedCreditReadable: formatUSDC(remaining),
+      refundAmount: String(remaining),
+      refundReadable: formatUSDC(remaining),
+      refundSignature: refundResult.signature,
+    };
+    res.json(response);
     return;
   }
 
-  // Payment verified — mark settled
+  // Entire credit line consumed — nothing to refund
   await sessions.settle(session.sessionId);
 
   const response: SettlementResponse = {
@@ -306,10 +435,9 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
     totalConsumed: String(session.consumed),
     totalConsumedReadable: formatUSDC(session.consumed),
     requestsServed: session.requestCount,
-    unusedCredit: String(remaining),
-    unusedCreditReadable: formatUSDC(remaining),
+    unusedCredit: "0",
+    unusedCreditReadable: "$0.00",
   };
-
   res.json(response);
 });
 
@@ -318,7 +446,7 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
 app.listen(CONFIG.port, () => {
   console.log(`Dynamic Payment Channels server listening on port ${CONFIG.port}`);
   console.log(`  Network:   ${CONFIG.solana.network}`);
-  console.log(`  Recipient: ${CONFIG.solana.recipient || "(not set)"}`);
+  console.log(`  Escrow:    ${getEscrowAddress() || "(not set — add ESCROW_PRIVATE_KEY)"}`);
   console.log(`  Valiron:   ${CONFIG.valiron.baseUrl}`);
   console.log(`  Min Score: ${CONFIG.valiron.minScore}`);
 });
