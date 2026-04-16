@@ -1,0 +1,111 @@
+import type {
+  OpenChannelResponse,
+  OpenChannelError,
+  ConsumeResponse,
+  ChannelStatus,
+  SettleResponse,
+} from './types'
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+    ...options,
+  })
+
+  const data = await res.json()
+
+  if (!res.ok) {
+    const err = data as OpenChannelError
+    const error = new Error(err.message || `Request failed (${res.status})`) as Error & {
+      status: number
+      code: string
+      data: OpenChannelError
+    }
+    error.status = res.status
+    error.code = err.error || 'unknown'
+    error.data = err
+    throw error
+  }
+
+  return data as T
+}
+
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/health`, { method: 'GET' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function openChannel(
+  agentId: string,
+  walletAddress?: string
+): Promise<OpenChannelResponse> {
+  return request<OpenChannelResponse>(`/api/channel/open/${agentId}`, {
+    method: 'POST',
+    body: JSON.stringify({ walletAddress }),
+  })
+}
+
+export async function consumeService(
+  sessionId: string,
+  cost: number,
+  description?: string
+): Promise<ConsumeResponse> {
+  return request<ConsumeResponse>(`/api/channel/consume/${sessionId}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${sessionId}`,
+    },
+    body: JSON.stringify({ cost, description }),
+  })
+}
+
+export async function getChannelStatus(sessionId: string): Promise<ChannelStatus> {
+  return request<ChannelStatus>(`/api/channel/status/${sessionId}`)
+}
+
+export async function settleChannel(
+  sessionId: string,
+  paymentCredential?: string
+): Promise<SettleResponse | { status: number; wwwAuthenticate: string }> {
+  const headers: Record<string, string> = {}
+
+  if (paymentCredential) {
+    headers['Authorization'] = `Payment ${paymentCredential}`
+  }
+
+  const res = await fetch(`${API_BASE}/api/channel/settle/${sessionId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+  })
+
+  if (res.status === 402) {
+    const wwwAuthenticate = res.headers.get('WWW-Authenticate') || ''
+    return { status: 402, wwwAuthenticate }
+  }
+
+  const data = await res.json()
+
+  if (!res.ok) {
+    const error = new Error(data.message || `Settlement failed (${res.status})`) as Error & {
+      status: number
+      code: string
+    }
+    error.status = res.status
+    error.code = data.error || 'unknown'
+    throw error
+  }
+
+  return data as SettleResponse
+}
