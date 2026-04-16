@@ -86,11 +86,16 @@ app.post("/channel/preflight/:agentId", async (req, res) => {
     }
 
     // Verify wallet has enough USDC to cover the credit line
-    let walletBalance = 0n;
+    let walletBalance: bigint;
     try {
       walletBalance = await getUsdcBalance(walletAddress);
     } catch (err) {
       console.error("Balance check error:", err);
+      res.status(502).json({
+        error: "balance_check_failed",
+        message: "Could not verify wallet balance. Please try again.",
+      });
+      return;
     }
 
     if (walletBalance < BigInt(gate.policy.creditLine)) {
@@ -172,6 +177,16 @@ app.post("/channel/open/:agentId", async (req, res) => {
         tier: gate.result.tier,
         riskLevel: gate.result.riskLevel,
         message: "Agent does not meet minimum trust threshold.",
+      });
+      return;
+    }
+
+    // Prevent deposit signature replay — each deposit can only open one channel
+    const claimed = await sessions.claimDeposit(depositSignature);
+    if (!claimed) {
+      res.status(409).json({
+        error: "deposit_already_used",
+        message: "This deposit signature has already been used to open a channel.",
       });
       return;
     }
@@ -359,6 +374,22 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
     return;
   }
 
+  // Acquire settlement lock to prevent concurrent double-refund
+  const lockAcquired = await sessions.acquireSettleLock(session.sessionId);
+  if (!lockAcquired) {
+    res.status(409).json({ error: "settlement_in_progress", message: "Settlement is already in progress." });
+    return;
+  }
+
+  try {
+  // Re-check settled state after acquiring lock (another request may have completed)
+  const freshSession = await sessions.get(session.sessionId);
+  if (freshSession?.settled) {
+    await sessions.releaseSettleLock(session.sessionId);
+    res.status(409).json({ error: "already_settled", message: "Channel already settled." });
+    return;
+  }
+
   // Close the channel
   await sessions.close(session.sessionId);
 
@@ -439,6 +470,10 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
     unusedCreditReadable: "$0.00",
   };
   res.json(response);
+
+  } finally {
+    await sessions.releaseSettleLock(session.sessionId);
+  }
 });
 
 // ─── Start ──────────────────────────────────────────────────────────────────

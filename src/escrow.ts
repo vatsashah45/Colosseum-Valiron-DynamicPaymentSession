@@ -55,7 +55,8 @@ export function getEscrowAddress(): string | null {
 
 /**
  * Verify that a USDC deposit was made to the escrow wallet.
- * Checks the on-chain transaction for correct amount, sender, and recipient.
+ * Checks the on-chain transaction for correct amount, sender debit, and recipient credit.
+ * Uses finalized commitment to prevent reorg-based attacks.
  */
 export async function verifyDeposit(
   txSignature: string,
@@ -71,51 +72,66 @@ export async function verifyDeposit(
 
   try {
     const tx = await connection.getTransaction(txSignature, {
-      commitment: "confirmed",
+      commitment: "finalized",
       maxSupportedTransactionVersion: 0,
     });
 
     if (!tx) {
-      return { verified: false, error: "Transaction not found on-chain. It may still be confirming." };
+      return { verified: false, error: "Transaction not found on-chain. It may still be finalizing." };
     }
 
     if (tx.meta?.err) {
       return { verified: false, error: "Transaction failed on-chain" };
     }
 
-    // Check pre/post token balances to verify USDC transfer to escrow
+    // Sum all escrow-owned USDC account deltas (handles multiple ATAs)
     const preBalances = tx.meta?.preTokenBalances ?? [];
     const postBalances = tx.meta?.postTokenBalances ?? [];
+    const usdcMint = CONFIG.solana.usdcMint;
 
-    const escrowPre = preBalances.find(
-      (b) => b.owner === escrowAddress && b.mint === CONFIG.solana.usdcMint,
-    );
-    const escrowPost = postBalances.find(
-      (b) => b.owner === escrowAddress && b.mint === CONFIG.solana.usdcMint,
-    );
+    const sumUsdcAmount = (
+      balances: typeof preBalances,
+      owner: string,
+    ): bigint =>
+      balances.reduce((total, b) => {
+        if (b.owner !== owner || b.mint !== usdcMint) return total;
+        return total + BigInt(b.uiTokenAmount?.amount ?? "0");
+      }, 0n);
 
-    const preAmount = Number(escrowPre?.uiTokenAmount?.amount ?? "0");
-    const postAmount = Number(escrowPost?.uiTokenAmount?.amount ?? "0");
-    const deposited = postAmount - preAmount;
+    // Verify escrow received the expected amount
+    const escrowPreAmount = sumUsdcAmount(preBalances, escrowAddress);
+    const escrowPostAmount = sumUsdcAmount(postBalances, escrowAddress);
+    const deposited = escrowPostAmount - escrowPreAmount;
 
-    if (deposited < expectedAmount) {
+    if (deposited < BigInt(expectedAmount)) {
       return {
         verified: false,
-        actualAmount: deposited,
+        actualAmount: Number(deposited),
         error: `Deposit too small: expected ${expectedAmount}, got ${deposited}`,
       };
     }
 
-    // Verify sender wallet was involved
-    const senderInvolved =
-      preBalances.some((b) => b.owner === fromWallet) ||
-      postBalances.some((b) => b.owner === fromWallet);
+    // Verify the sender actually funded the escrow (debit check)
+    const senderPreAmount = sumUsdcAmount(preBalances, fromWallet);
+    const senderPostAmount = sumUsdcAmount(postBalances, fromWallet);
+    const senderUsdcSeen =
+      preBalances.some((b) => b.owner === fromWallet && b.mint === usdcMint) ||
+      postBalances.some((b) => b.owner === fromWallet && b.mint === usdcMint);
 
-    if (!senderInvolved) {
-      return { verified: false, error: "Sender wallet not found in transaction" };
+    if (!senderUsdcSeen) {
+      return { verified: false, error: "Sender USDC account not found in transaction" };
     }
 
-    return { verified: true, actualAmount: deposited };
+    const senderDebited = senderPreAmount - senderPostAmount;
+    if (senderDebited < deposited) {
+      return {
+        verified: false,
+        actualAmount: Number(deposited),
+        error: `Sender did not fund escrow: escrow credited ${deposited}, sender debited ${senderDebited}`,
+      };
+    }
+
+    return { verified: true, actualAmount: Number(deposited) };
   } catch (err) {
     return {
       verified: false,
@@ -168,7 +184,7 @@ export async function sendRefund(
 
   try {
     const signature = await sendAndConfirmTransaction(
-      connection, tx, [keypair], { commitment: "confirmed" },
+      connection, tx, [keypair], { commitment: "finalized" },
     );
     return { signature };
   } catch (err) {

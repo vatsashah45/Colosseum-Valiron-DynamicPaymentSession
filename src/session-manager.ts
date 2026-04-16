@@ -7,6 +7,7 @@ import type { Session, SessionPolicy, UsageRecord } from "./types.js";
 // Falls back to in-memory Map when UPSTASH env vars are not set.
 
 const SESSION_PREFIX = "session:";
+const DEPOSIT_PREFIX = "deposit:";
 // Extra buffer beyond channel expiry so settled sessions remain queryable
 const TTL_BUFFER_SECONDS = 300;
 
@@ -63,6 +64,8 @@ function fromSessionData(data: SessionData): Session {
 export class SessionManager {
   private redis: Redis | null = null;
   private fallback: Map<string, Session> | null = null;
+  private usedDeposits: Set<string> = new Set();
+  private settlingLocks: Set<string> = new Set();
 
   constructor() {
     const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -222,6 +225,55 @@ export class SessionManager {
     session.settlementSignature = signature;
     await this.save(session);
     return session;
+  }
+
+  /**
+   * Prevent deposit signature replay: mark a deposit as used (single-use).
+   * Returns false if the signature was already consumed by another channel.
+   */
+  async claimDeposit(depositSignature: string): Promise<boolean> {
+    if (this.fallback) {
+      if (this.usedDeposits.has(depositSignature)) return false;
+      this.usedDeposits.add(depositSignature);
+      return true;
+    }
+    // Redis SETNX: atomic "set if not exists" — returns true only for the first caller
+    const key = `${DEPOSIT_PREFIX}${depositSignature}`;
+    const result = await this.redis!.setnx(key, "1");
+    if (result === 1) {
+      // Set TTL so deposit keys don't persist forever (1 hour)
+      await this.redis!.expire(key, 3600);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Acquire a settlement lock to prevent concurrent double-refund.
+   * Returns false if another settle is already in progress.
+   */
+  async acquireSettleLock(sessionId: string): Promise<boolean> {
+    if (this.fallback) {
+      if (this.settlingLocks.has(sessionId)) return false;
+      this.settlingLocks.add(sessionId);
+      return true;
+    }
+    const key = `settling:${sessionId}`;
+    const result = await this.redis!.setnx(key, "1");
+    if (result === 1) {
+      await this.redis!.expire(key, 120); // 2 min TTL safety net
+      return true;
+    }
+    return false;
+  }
+
+  /** Release a settlement lock (called after settle completes or fails). */
+  async releaseSettleLock(sessionId: string): Promise<void> {
+    if (this.fallback) {
+      this.settlingLocks.delete(sessionId);
+      return;
+    }
+    await this.redis!.del(`settling:${sessionId}`);
   }
 
   /** No-op for Redis (TTL handles cleanup). Kept for API compat. */
