@@ -1,124 +1,111 @@
-const API = "/api";
+import type {
+  OpenChannelResponse,
+  OpenChannelError,
+  ConsumeResponse,
+  ChannelStatus,
+  SettleResponse,
+} from './types'
 
-export interface ChannelOpenResponse {
-  sessionId: string;
-  agentId: string;
-  tier: string;
-  score: number;
-  riskLevel: string;
-  creditLine: string;
-  creditLineReadable: string;
-  maxRequests: number | null;
-  expiresAt: string;
-  durationSeconds: number;
-  walletVerified: boolean;
-  walletBalance: string;
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
 
-export interface ConsumeResponse {
-  requestId: string;
-  cost: string;
-  costReadable: string;
-  description?: string;
-  session: {
-    consumed: string;
-    consumedReadable: string;
-    remaining: string;
-    remainingReadable: string;
-    requestCount: number;
-    maxRequests: number | null;
-    secondsRemaining: number;
-  };
-}
-
-export interface ChannelStatusResponse {
-  sessionId: string;
-  agentId: string;
-  tier: string;
-  creditLine: string;
-  creditLineReadable: string;
-  consumed: string;
-  consumedReadable: string;
-  remaining: string;
-  remainingReadable: string;
-  requestCount: number;
-  maxRequests: number | null;
-  expiresAt: string;
-  secondsRemaining: number;
-  active: boolean;
-  settled: boolean;
-}
-
-export interface SettlementResponse {
-  sessionId: string;
-  settled: boolean;
-  totalConsumed: string;
-  totalConsumedReadable: string;
-  requestsServed: number;
-  unusedCredit: string;
-  unusedCreditReadable: string;
-}
-
-export interface ErrorResponse {
-  error: string;
-  score?: number;
-  tier?: string;
-  riskLevel?: string;
-  message: string;
-}
-
-export async function openChannel(agentId: string, walletAddress?: string): Promise<{
-  status: number;
-  data: ChannelOpenResponse | ErrorResponse;
-}> {
-  const res = await fetch(`${API}/channel/open/${agentId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ walletAddress }),
-  });
-  const data = await res.json();
-  return { status: res.status, data };
-}
-
-export async function consume(
-  sessionId: string,
-  cost: number,
-  description?: string
-): Promise<{ status: number; data: ConsumeResponse | Record<string, unknown> }> {
-  const res = await fetch(`${API}/channel/consume/${sessionId}`, {
-    method: "POST",
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${sessionId}`,
+      'Content-Type': 'application/json',
+      ...options?.headers,
     },
-    body: JSON.stringify({ cost, description }),
-  });
-  const data = await res.json();
-  return { status: res.status, data };
-}
+    ...options,
+  })
 
-export async function getChannelStatus(
-  sessionId: string
-): Promise<ChannelStatusResponse> {
-  const res = await fetch(`${API}/channel/status/${sessionId}`);
-  return res.json();
-}
+  const data = await res.json()
 
-export async function settleChannel(
-  sessionId: string
-): Promise<{ status: number; data: SettlementResponse | Record<string, unknown> }> {
-  const res = await fetch(`${API}/channel/settle/${sessionId}`, {
-    method: "POST",
-  });
-  const data = await res.json();
-  return { status: res.status, data };
+  if (!res.ok) {
+    const err = data as OpenChannelError
+    const error = new Error(err.message || `Request failed (${res.status})`) as Error & {
+      status: number
+      code: string
+      data: OpenChannelError
+    }
+    error.status = res.status
+    error.code = err.error || 'unknown'
+    error.data = err
+    throw error
+  }
+
+  return data as T
 }
 
 export async function checkHealth(): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/health`);
-    return res.ok;
+    const res = await fetch(`${API_BASE}/api/health`, { method: 'GET' })
+    return res.ok
   } catch {
-    return false;
+    return false
   }
+}
+
+export async function openChannel(
+  agentId: string,
+  walletAddress?: string
+): Promise<OpenChannelResponse> {
+  return request<OpenChannelResponse>(`/api/channel/open/${agentId}`, {
+    method: 'POST',
+    body: JSON.stringify({ walletAddress }),
+  })
+}
+
+export async function consumeService(
+  sessionId: string,
+  cost: number,
+  description?: string
+): Promise<ConsumeResponse> {
+  return request<ConsumeResponse>(`/api/channel/consume/${sessionId}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${sessionId}`,
+    },
+    body: JSON.stringify({ cost, description }),
+  })
+}
+
+export async function getChannelStatus(sessionId: string): Promise<ChannelStatus> {
+  return request<ChannelStatus>(`/api/channel/status/${sessionId}`)
+}
+
+export async function settleChannel(
+  sessionId: string,
+  paymentCredential?: string
+): Promise<SettleResponse | { status: number; wwwAuthenticate: string }> {
+  const headers: Record<string, string> = {}
+
+  if (paymentCredential) {
+    headers['Authorization'] = `Payment ${paymentCredential}`
+  }
+
+  const res = await fetch(`${API_BASE}/api/channel/settle/${sessionId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+  })
+
+  if (res.status === 402) {
+    const wwwAuthenticate = res.headers.get('WWW-Authenticate') || ''
+    return { status: 402, wwwAuthenticate }
+  }
+
+  const data = await res.json()
+
+  if (!res.ok) {
+    const error = new Error(data.message || `Settlement failed (${res.status})`) as Error & {
+      status: number
+      code: string
+    }
+    error.status = res.status
+    error.code = data.error || 'unknown'
+    throw error
+  }
+
+  return data as SettleResponse
 }

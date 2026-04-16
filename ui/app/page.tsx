@@ -1,197 +1,93 @@
-"use client";
+'use client'
 
-import { useEffect, useState } from "react";
-import AgentLookup from "@/components/AgentLookup";
-import ChannelPanel from "@/components/SessionPanel";
-import TierTable from "@/components/TierTable";
-import { checkHealth, type ChannelOpenResponse } from "@/lib/api";
-import { usePhantom } from "@/lib/usePhantom";
-
-const SAMPLE_AGENTS = [
-  { id: "1209", name: "Sentinel" },
-  { id: "1211", name: "DataPilot" },
-  { id: "1212", name: "TrustNode" },
-  { id: "1210", name: "TradeBot" },
-  { id: "1213", name: "Watchdog" },
-];
+import { useState, useEffect } from 'react'
+import { AppHeader } from '@/components/app-header'
+import { ServerStatusStrip } from '@/components/server-status'
+import { GateAgent } from '@/components/gate-agent'
+import { ConsumeSettle } from '@/components/consume-settle'
+import { TierTable } from '@/components/tier-table'
+import { HowItWorks } from '@/components/how-it-works'
+import { AppFooter } from '@/components/app-footer'
+import { useWallet } from '@/hooks/use-wallet'
+import { checkHealth } from '@/lib/api'
+import type { OpenChannelResponse, ServerStatus } from '@/lib/types'
 
 export default function Home() {
-  const [serverUp, setServerUp] = useState<boolean | null>(null);
-  const [activeChannel, setActiveChannel] =
-    useState<ChannelOpenResponse | null>(null);
-  const [prefillAgent, setPrefillAgent] = useState("");
-  const { publicKey, connected, hasPhantom, connect, disconnect, signTransaction } = usePhantom();
+  const wallet = useWallet()
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('checking')
+  const [channel, setChannel] = useState<OpenChannelResponse | null>(null)
 
   useEffect(() => {
-    checkHealth().then(setServerUp);
-    const iv = setInterval(() => checkHealth().then(setServerUp), 10000);
-    return () => clearInterval(iv);
-  }, []);
+    let active = true
+    const poll = async () => {
+      const ok = await checkHealth()
+      if (active) setServerStatus(ok ? 'online' : 'offline')
+    }
+    poll()
+    const interval = setInterval(poll, 15000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [])
 
   return (
-    <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-10 space-y-8">
-      {/* Header */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Dynamic Payment Channels
-          </h1>
-          {/* Wallet Connect */}
-          <div className="flex items-center gap-3">
-            {connected && publicKey ? (
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 text-xs text-emerald-400">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                  {publicKey.slice(0, 4)}…{publicKey.slice(-4)}
-                </span>
-                <button
-                  onClick={disconnect}
-                  className="px-3 py-1.5 text-xs rounded-lg bg-white/5 text-white/40 hover:bg-white/10 transition-colors"
-                >
-                  Disconnect
-                </button>
+    <div className="flex min-h-screen flex-col">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+      
+      <AppHeader
+        connected={wallet.connected}
+        shortAddress={wallet.shortAddress}
+        connecting={wallet.connecting}
+        onConnect={wallet.connect}
+        onDisconnect={wallet.disconnect}
+        hasPhantom={wallet.hasPhantom}
+      />
+
+      <ServerStatusStrip status={serverStatus} />
+
+      <main id="main-content" className="flex-1" role="main">
+        {/* Hero intro */}
+        <section className="relative overflow-hidden border-b border-border">
+          <div className="dot-pattern absolute inset-0 opacity-40" />
+          <div className="relative mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-12 lg:py-16">
+            <div className="flex flex-col items-center text-center gap-3 sm:gap-4 max-w-2xl mx-auto">
+              <div className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 sm:px-3 py-1">
+                <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                <span className="text-[11px] sm:text-xs font-medium text-primary">Live on Devnet</span>
               </div>
-            ) : (
-              <button
-                onClick={connect}
-                className="px-4 py-2 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 font-medium text-sm transition-colors"
-              >
-                {hasPhantom ? "Connect Phantom" : "Install Phantom"}
-              </button>
-            )}
+              <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-3xl lg:text-4xl text-balance">
+                Trust-Adaptive Payment Channels for AI Agents
+              </h2>
+              <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-lg text-pretty">
+                Gate agents by trust score, open credit-backed channels instantly,
+                consume services off-chain, and settle in USDC on Solana.
+              </p>
+            </div>
           </div>
-        </div>
-        <p className="text-white/50 text-sm max-w-2xl">
-          Agents open a channel once, consume services freely, and settle at the
-          end — no per-request transactions, no friction. Trust scores determine
-          credit lines and channel duration. Powered by{" "}
-          <span className="text-white/70">Valiron</span> reputation and{" "}
-          <span className="text-white/70">Solana USDC</span> settlement.
-        </p>
-      </div>
-
-      {/* Server Status */}
-      <div className="flex items-center gap-2 text-sm">
-        <span
-          className={`w-2 h-2 rounded-full ${
-            serverUp === null
-              ? "bg-white/20"
-              : serverUp
-              ? "bg-emerald-400"
-              : "bg-red-400"
-          }`}
-        />
-        <span className="text-white/50">
-          {serverUp === null
-            ? "Checking server…"
-            : serverUp
-            ? "Server running on :3000"
-            : "Server offline — start with npm run dev"}
-        </span>
-      </div>
-
-      {/* Agent Lookup */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-            1. Gate Agent & Open Channel
-          </h2>
-          <div className="flex items-center gap-2 text-xs text-white/30">
-            Try:
-            {SAMPLE_AGENTS.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => setPrefillAgent(a.id)}
-                className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors font-mono"
-              >
-                {a.name}
-              </button>
-            ))}
-          </div>
-        </div>
-        <AgentLookup
-          prefillAgent={prefillAgent}
-          onChannelOpened={(ch) => setActiveChannel(ch)}
-          walletAddress={publicKey}
-        />
-      </section>
-
-      {/* Active Channel */}
-      {activeChannel && (
-        <section>
-          <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider mb-3">
-            2. Consume Services & Settle
-          </h2>
-          <ChannelPanel
-            channel={activeChannel}
-            onSettled={() => setActiveChannel(null)}
-            walletPublicKey={publicKey}
-            signTransaction={signTransaction}
-          />
         </section>
-      )}
 
-      {/* Tier Reference */}
-      <section>
-        <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider mb-3">
-          Tier Policy Reference
-        </h2>
-        <TierTable activeTier={activeChannel?.tier} />
-      </section>
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-10 flex flex-col gap-6 sm:gap-10 stagger-children">
+          {/* Section 1: Gate Agent */}
+          <GateAgent
+            walletAddress={wallet.address}
+            onChannelOpened={(data) => setChannel(data)}
+          />
 
-      {/* Architecture */}
-      <section className="rounded-xl border border-white/10 bg-white/[0.02] p-6">
-        <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider mb-4">
-          How It Works
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center text-sm">
-          <Step
-            n={1}
-            title="Open Channel"
-            desc="Gate check via Valiron → trust tier → credit line assigned"
-          />
-          <Step
-            n={2}
-            title="Consume Freely"
-            desc="Each request is instant (200 OK) — costs added to tab"
-          />
-          <Step
-            n={3}
-            title="Tab Tracked"
-            desc="Server enforces credit line, duration, and request cap"
-          />
-          <Step
-            n={4}
-            title="Settle Once"
-            desc="One real USDC payment on Solana mainnet for the total tab at close"
-          />
+          {/* Section 2: Consume & Settle (visible once channel opens) */}
+          {channel && <ConsumeSettle channel={channel} />}
+
+          {/* Section 3: Tier Policy Table */}
+          <TierTable activeTier={channel?.tier} />
+
+          {/* Section 4: How It Works */}
+          <HowItWorks />
         </div>
-      </section>
+      </main>
 
-      {/* Footer */}
-      <footer className="text-center text-xs text-white/20 pb-8">
-        Built for Colosseum Hackathon · Valiron × Solana Micropayment Protocol
-      </footer>
-    </main>
-  );
-}
-
-function Step({
-  n,
-  title,
-  desc,
-}: {
-  n: number;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mx-auto font-mono text-sm text-white/60">
-        {n}
-      </div>
-      <div className="font-medium text-white/80">{title}</div>
-      <div className="text-white/40 text-xs">{desc}</div>
+      <AppFooter />
     </div>
-  );
+  )
 }
