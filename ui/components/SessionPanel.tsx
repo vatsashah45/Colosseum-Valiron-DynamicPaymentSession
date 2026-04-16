@@ -4,24 +4,19 @@ import { useCallback, useEffect, useState } from "react";
 import {
   getChannelStatus,
   consume,
+  settleChannel,
   type ChannelOpenResponse,
   type ChannelStatusResponse,
   type SettlementResponse,
   type ConsumeResponse,
 } from "@/lib/api";
-import {
-  settleWithPayment,
-  type PaymentProgress,
-} from "@/lib/solana-payment";
 
 interface ChannelPanelProps {
   channel: ChannelOpenResponse;
   onSettled: () => void;
-  walletPublicKey: string | null;
-  signTransaction: <T>(tx: T) => Promise<T>;
 }
 
-export default function ChannelPanel({ channel, onSettled, walletPublicKey, signTransaction }: ChannelPanelProps) {
+export default function ChannelPanel({ channel, onSettled }: ChannelPanelProps) {
   const [status, setStatus] = useState<ChannelStatusResponse | null>(null);
   const [cost, setCost] = useState("0.50");
   const [desc, setDesc] = useState("API call");
@@ -32,7 +27,6 @@ export default function ChannelPanel({ channel, onSettled, walletPublicKey, sign
   } | null>(null);
   const [settling, setSettling] = useState(false);
   const [settlement, setSettlement] = useState<SettlementResponse | null>(null);
-  const [paymentProgress, setPaymentProgress] = useState<PaymentProgress | null>(null);
   const [logs, setLogs] = useState<
     { time: string; action: string; detail: string; ok: boolean }[]
   >([]);
@@ -86,38 +80,28 @@ export default function ChannelPanel({ channel, onSettled, walletPublicKey, sign
   }
 
   async function handleSettle() {
-    if (!walletPublicKey) {
-      addLog("SETTLE", "Connect your Phantom wallet first", false);
-      return;
-    }
     setSettling(true);
-    setPaymentProgress(null);
     setLastResult(null);
     try {
-      const result = await settleWithPayment(
-        channel.sessionId,
-        walletPublicKey,
-        signTransaction,
-        (p) => setPaymentProgress(p),
-      );
+      const res = await settleChannel(channel.sessionId);
 
-      if (result.success && result.settlement) {
-        const s = result.settlement;
+      if (res.status === 200) {
+        const s = res.data as SettlementResponse;
         setSettlement(s);
         addLog(
           "SETTLE",
-          `Settled on-chain! ${s.totalConsumedReadable} USDC for ${s.requestsServed} requests`,
+          `Settled! ${s.totalConsumedReadable} consumed, ${s.refundReadable || s.unusedCreditReadable} refunded${s.refundSignature ? ` (tx: ${s.refundSignature.slice(0, 8)}…)` : ""}`,
           true,
         );
       } else {
-        addLog("SETTLE", result.error || "Settlement failed", false);
-        setLastResult({ status: 500, data: { error: result.error } });
+        const errData = res.data as Record<string, unknown>;
+        addLog("SETTLE", (errData.message as string) || "Settlement failed", false);
+        setLastResult({ status: res.status, data: errData });
       }
       refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Settlement failed";
       addLog("SETTLE", msg, false);
-      setPaymentProgress({ step: "error", detail: msg });
     } finally {
       setSettling(false);
     }
@@ -225,11 +209,11 @@ export default function ChannelPanel({ channel, onSettled, walletPublicKey, sign
           <button
             type="button"
             onClick={handleSettle}
-            disabled={settling || !walletPublicKey}
-            title={!walletPublicKey ? "Connect Phantom wallet to settle" : "Settle & close channel"}
+            disabled={settling}
+            title="Settle & close channel — unused credit is refunded from escrow"
             className="px-5 py-2 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-30 font-medium transition-colors"
           >
-            {settling ? "Settling…" : !walletPublicKey ? "Connect Wallet" : "Settle & Close"}
+            {settling ? "Settling…" : "Settle & Close"}
           </button>
         </form>
       )}
@@ -254,27 +238,6 @@ export default function ChannelPanel({ channel, onSettled, walletPublicKey, sign
         </div>
       )}
 
-      {/* Payment Progress */}
-      {paymentProgress && !settlement && (
-        <div className={`rounded-lg p-3 text-sm font-mono ${
-          paymentProgress.step === "error"
-            ? "bg-red-500/10 border border-red-500/20 text-red-300"
-            : paymentProgress.step === "confirmed"
-            ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
-            : "bg-blue-500/10 border border-blue-500/20 text-blue-300"
-        }`}>
-          <span className="text-white/40 mr-2">
-            {paymentProgress.step === "challenge" && "1/4"}
-            {paymentProgress.step === "building" && "2/4"}
-            {paymentProgress.step === "signing" && "3/4"}
-            {paymentProgress.step === "submitting" && "4/4"}
-            {paymentProgress.step === "confirmed" && "✓"}
-            {paymentProgress.step === "error" && "✗"}
-          </span>
-          {paymentProgress.detail}
-        </div>
-      )}
-
       {/* Settlement Summary */}
       {settlement && (
         <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-4">
@@ -287,16 +250,21 @@ export default function ChannelPanel({ channel, onSettled, walletPublicKey, sign
               <span className="font-mono">{settlement.requestsServed}</span>
             </div>
             <div>
-              <span className="text-white/40">Total Tab: </span>
+              <span className="text-white/40">Consumed: </span>
               <span className="font-mono text-emerald-400">{settlement.totalConsumedReadable}</span>
             </div>
             <div>
-              <span className="text-white/40">Unused Credit: </span>
-              <span className="font-mono text-white/60">{settlement.unusedCreditReadable}</span>
+              <span className="text-white/40">Refunded: </span>
+              <span className="font-mono text-white/60">{settlement.refundReadable || settlement.unusedCreditReadable}</span>
             </div>
           </div>
+          {settlement.refundSignature && (
+            <p className="mt-2 text-xs text-blue-400/60 break-all">
+              Refund tx: {settlement.refundSignature}
+            </p>
+          )}
           <p className="mt-2 text-xs text-blue-400/60">
-            Real on-chain USDC settlement on Solana mainnet — one transaction for the entire session.
+            Provider kept {settlement.totalConsumedReadable} from escrow. Unused credit refunded on-chain.
           </p>
         </div>
       )}

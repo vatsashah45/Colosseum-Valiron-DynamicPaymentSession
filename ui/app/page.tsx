@@ -62,11 +62,12 @@ export default function Home() {
           </div>
         </div>
         <p className="text-white/50 text-sm max-w-2xl">
-          Agents open a channel once, consume services freely, and settle at the
-          end — no per-request transactions, no friction. Trust scores determine
-          credit lines and channel duration. Powered by{" "}
+          Agents deposit USDC into escrow to open a channel, consume services freely,
+          and get unused credit refunded at close — no per-request transactions, no
+          solvency risk. Trust scores determine credit lines and channel duration.
+          Powered by{" "}
           <span className="text-white/70">Valiron</span> reputation and{" "}
-          <span className="text-white/70">Solana USDC</span> settlement.
+          <span className="text-white/70">Solana USDC</span> escrow.
         </p>
       </div>
 
@@ -94,7 +95,7 @@ export default function Home() {
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-            1. Gate Agent & Open Channel
+            1. Gate Agent & Deposit to Escrow
           </h2>
           <div className="flex items-center gap-2 text-xs text-white/30">
             Try:
@@ -113,6 +114,7 @@ export default function Home() {
           prefillAgent={prefillAgent}
           onChannelOpened={(ch) => setActiveChannel(ch)}
           walletAddress={publicKey}
+          signTransaction={signTransaction}
         />
       </section>
 
@@ -125,8 +127,6 @@ export default function Home() {
           <ChannelPanel
             channel={activeChannel}
             onSettled={() => setActiveChannel(null)}
-            walletPublicKey={publicKey}
-            signTransaction={signTransaction}
           />
         </section>
       )}
@@ -147,23 +147,23 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center text-sm">
           <Step
             n={1}
-            title="Open Channel"
-            desc="Gate check via Valiron → trust tier → credit line assigned"
+            title="Gate Agent"
+            desc="Trust check via Valiron → tier → credit line + escrow address returned"
           />
           <Step
             n={2}
-            title="Consume Freely"
-            desc="Each request is instant (200 OK) — costs added to tab"
+            title="Deposit & Open"
+            desc="Agent deposits credit line USDC into escrow → channel opens"
           />
           <Step
             n={3}
-            title="Tab Tracked"
-            desc="Server enforces credit line, duration, and request cap"
+            title="Consume Freely"
+            desc="Each request is instant (200 OK) — costs deducted from escrowed balance"
           />
           <Step
             n={4}
-            title="Settle Once"
-            desc="One real USDC payment on Solana mainnet for the total tab at close"
+            title="Settle & Refund"
+            desc="Server keeps consumed amount, refunds unused USDC back to agent"
           />
         </div>
       </section>
