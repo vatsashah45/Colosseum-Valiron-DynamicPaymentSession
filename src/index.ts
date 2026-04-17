@@ -127,6 +127,14 @@ app.post("/channel/preflight/:agentId", async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error("Gate error:", err);
+    const e = err as { statusCode?: number; message?: string };
+    if (e?.statusCode === 404) {
+      res.status(404).json({
+        error: "agent_rejected",
+        message: "Agent not registered with Valiron on Solana.",
+      });
+      return;
+    }
     res.status(502).json({
       error: "gate_unavailable",
       message: "Could not reach Valiron trust service.",
@@ -240,6 +248,14 @@ app.post("/channel/open/:agentId", async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error("Open error:", err);
+    const e = err as { statusCode?: number };
+    if (e?.statusCode === 404) {
+      res.status(404).json({
+        error: "agent_rejected",
+        message: "Agent not registered with Valiron on Solana.",
+      });
+      return;
+    }
     res.status(502).json({
       error: "gate_unavailable",
       message: "Could not reach Valiron trust service.",

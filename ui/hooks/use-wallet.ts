@@ -43,9 +43,12 @@ export function useWallet() {
   const connect = useCallback(async () => {
     const provider = getProvider()
     if (!provider) {
+      if (typeof window !== 'undefined') {
+        window.open('https://phantom.app/download', '_blank', 'noopener,noreferrer')
+      }
       setState(prev => ({
         ...prev,
-        error: 'Phantom wallet not found. Please install it.',
+        error: 'Phantom wallet not found. Opening install page...',
       }))
       return
     }

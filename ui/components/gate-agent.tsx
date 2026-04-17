@@ -15,11 +15,13 @@ import { preflightChannel, openChannel } from '@/lib/api'
 import { depositToEscrow, type DepositProgress } from '@/lib/solana-payment'
 import type { OpenChannelResponse, PreflightResponse, ErrorCode, TierName } from '@/lib/types'
 
+// Real Valiron agent IDs from the Solana edge proxy.
+// Valiron uses sequential numeric IDs (see demo/simulate.ts).
 const SAMPLE_AGENTS = [
-  { id: 'agent-alpha-001', label: 'Alpha' },
-  { id: 'agent-beta-002', label: 'Beta' },
-  { id: 'agent-gamma-003', label: 'Gamma' },
-  { id: 'agent-risky-999', label: 'Risky' },
+  { id: '999', label: 'Alpha' },   // score ~85, tier A (passes gate)
+  { id: '1', label: 'Beta' },      // score ~65, tier BA
+  { id: '42', label: 'Gamma' },    // score ~65, tier BA
+  { id: '99999', label: 'Risky' }, // not registered → rejected
 ]
 
 const ERROR_DETAILS: Record<string, { icon: typeof Shield; title: string; description: string; action: string }> = {
@@ -64,6 +66,30 @@ const ERROR_DETAILS: Record<string, { icon: typeof Shield; title: string; descri
     title: 'Deposit Already Used',
     description: 'This deposit signature has already been used to open a channel.',
     action: 'Make a new deposit to open another channel.',
+  },
+  escrow_not_configured: {
+    icon: AlertTriangle,
+    title: 'Escrow Not Configured',
+    description: 'The server has no escrow wallet set up, so it can\'t accept deposits yet.',
+    action: 'Set ESCROW_PRIVATE_KEY in the backend .env and restart the server.',
+  },
+  balance_check_failed: {
+    icon: WifiOff,
+    title: 'Could Not Check Wallet Balance',
+    description: 'The server failed to read your USDC balance from the Solana RPC.',
+    action: 'Try again in a moment, or check the backend SOLANA_RPC_URL.',
+  },
+  gate_unavailable: {
+    icon: WifiOff,
+    title: 'Trust Service Unavailable',
+    description: 'The Valiron trust gate could not be reached.',
+    action: 'Try again in a moment.',
+  },
+  deposit_required: {
+    icon: AlertTriangle,
+    title: 'Deposit Required',
+    description: 'A deposit signature is required to open the channel.',
+    action: 'Run the preflight step first, then deposit USDC to escrow.',
   },
   unknown: {
     icon: AlertTriangle,
@@ -190,7 +216,7 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
           <div>
             <CardTitle className="text-base font-bold tracking-tight">Gate Agent & Open Channel</CardTitle>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Enter an agent ID to check trust, deposit USDC to escrow, and open a credit line
+              Enter an agent ID to check trust, deposit USDC on Devnet to escrow, and open a credit line. Please note, you will also need a small amount of SOL (Devnet) to pay for the transaction fee.
             </p>
           </div>
         </div>
@@ -206,7 +232,7 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
           <label htmlFor="agent-id-input" className="sr-only">Agent ID</label>
           <Input
             id="agent-id-input"
-            placeholder="Enter agent ID (e.g. agent-alpha-001)"
+            placeholder="Enter agent ID (e.g. 999)"
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
             className="font-mono text-sm bg-secondary/60 border-border h-10"
@@ -238,7 +264,7 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
                 handleSubmit(agent.id)
               }}
               disabled={loading}
-              className="rounded-full border border-border bg-secondary/40 px-2.5 sm:px-3 py-0.5 sm:py-1 text-[11px] sm:text-xs font-mono text-muted-foreground transition-all hover:border-primary/40 hover:text-primary hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50"
+              className="rounded-full border border-border bg-secondary/40 px-2.5 sm:px-3 py-0.5 sm:py-1 text-[11px] sm:text-xs font-mono text-muted-foreground transition-all cursor-pointer hover:border-primary/40 hover:text-primary hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
               aria-label={`Try agent ${agent.label}`}
             >
               {agent.label}

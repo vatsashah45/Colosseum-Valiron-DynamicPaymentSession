@@ -95,6 +95,12 @@ export type ErrorCode =
   | 'unsettled_debt'
   | 'wallet_required'
   | 'connection_failed'
+  | 'escrow_not_configured'
+  | 'balance_check_failed'
+  | 'gate_unavailable'
+  | 'deposit_required'
+  | 'deposit_invalid'
+  | 'deposit_already_used'
   | 'unknown'
 
 export type PaymentStep =
