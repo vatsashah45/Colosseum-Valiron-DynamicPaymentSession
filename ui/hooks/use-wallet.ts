@@ -7,6 +7,7 @@ interface PhantomProvider {
   publicKey?: { toString(): string }
   connect(): Promise<{ publicKey: { toString(): string } }>
   disconnect(): Promise<void>
+  signTransaction?<T>(transaction: T): Promise<T>
   signMessage?(message: Uint8Array): Promise<{ signature: Uint8Array }>
   on(event: string, handler: (...args: unknown[]) => void): void
   off(event: string, handler: (...args: unknown[]) => void): void
@@ -120,10 +121,19 @@ export function useWallet() {
     }
   }, [])
 
+  const signTransaction = useCallback(async <T>(transaction: T): Promise<T> => {
+    const provider = getProvider()
+    if (!provider?.signTransaction) {
+      throw new Error('Wallet does not support transaction signing')
+    }
+    return provider.signTransaction(transaction)
+  }, [])
+
   return {
     ...state,
     connect,
     disconnect,
+    signTransaction,
     hasPhantom: typeof window !== 'undefined' && !!getProvider(),
   }
 }

@@ -1,4 +1,5 @@
 import type {
+  PreflightResponse,
   OpenChannelResponse,
   OpenChannelError,
   ConsumeResponse,
@@ -44,13 +45,24 @@ export async function checkHealth(): Promise<boolean> {
   }
 }
 
+export async function preflightChannel(
+  agentId: string,
+  walletAddress: string
+): Promise<PreflightResponse> {
+  return request<PreflightResponse>(`/api/channel/preflight/${agentId}`, {
+    method: 'POST',
+    body: JSON.stringify({ walletAddress }),
+  })
+}
+
 export async function openChannel(
   agentId: string,
-  walletAddress?: string
+  walletAddress: string,
+  depositSignature: string
 ): Promise<OpenChannelResponse> {
   return request<OpenChannelResponse>(`/api/channel/open/${agentId}`, {
     method: 'POST',
-    body: JSON.stringify({ walletAddress }),
+    body: JSON.stringify({ walletAddress, depositSignature }),
   })
 }
 

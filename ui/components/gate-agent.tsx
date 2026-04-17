@@ -4,15 +4,16 @@ import { useState } from 'react'
 import {
   Shield, AlertTriangle, Ban, Wallet, WifiOff,
   Clock, Hash, CreditCard, TrendingUp, ChevronRight,
-  Check, Loader2,
+  Check, Loader2, ArrowDownToLine,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { openChannel } from '@/lib/api'
-import type { OpenChannelResponse, ErrorCode, TierName } from '@/lib/types'
+import { preflightChannel, openChannel } from '@/lib/api'
+import { depositToEscrow, type DepositProgress } from '@/lib/solana-payment'
+import type { OpenChannelResponse, PreflightResponse, ErrorCode, TierName } from '@/lib/types'
 
 const SAMPLE_AGENTS = [
   { id: 'agent-alpha-001', label: 'Alpha' },
@@ -52,6 +53,18 @@ const ERROR_DETAILS: Record<string, { icon: typeof Shield; title: string; descri
     description: 'Could not reach the payment channel server.',
     action: 'Check your internet connection and try again.',
   },
+  deposit_invalid: {
+    icon: AlertTriangle,
+    title: 'Deposit Not Verified',
+    description: 'The escrow deposit could not be verified on-chain.',
+    action: 'Ensure the transaction was confirmed and try again.',
+  },
+  deposit_already_used: {
+    icon: AlertTriangle,
+    title: 'Deposit Already Used',
+    description: 'This deposit signature has already been used to open a channel.',
+    action: 'Make a new deposit to open another channel.',
+  },
   unknown: {
     icon: AlertTriangle,
     title: 'Something Went Wrong',
@@ -59,6 +72,8 @@ const ERROR_DETAILS: Record<string, { icon: typeof Shield; title: string; descri
     action: 'Please try again. If the issue persists, refresh the page.',
   },
 }
+
+type FlowStep = 'idle' | 'preflight' | 'depositing' | 'opening' | 'done'
 
 function getTierColor(tier: TierName) {
   const colors: Record<TierName, string> = {
@@ -82,26 +97,64 @@ function getRiskColor(risk: string) {
 
 interface GateAgentProps {
   walletAddress: string | null
+  signTransaction: <T>(transaction: T) => Promise<T>
   onChannelOpened: (data: OpenChannelResponse) => void
 }
 
-export function GateAgent({ walletAddress, onChannelOpened }: GateAgentProps) {
+export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: GateAgentProps) {
   const [agentId, setAgentId] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [flowStep, setFlowStep] = useState<FlowStep>('idle')
+  const [depositProgress, setDepositProgress] = useState<DepositProgress | null>(null)
+  const [preflight, setPreflight] = useState<PreflightResponse | null>(null)
   const [error, setError] = useState<{ code: ErrorCode; message: string; score?: number; tier?: string; riskLevel?: string } | null>(null)
   const [result, setResult] = useState<OpenChannelResponse | null>(null)
+
+  const loading = flowStep !== 'idle' && flowStep !== 'done'
 
   const handleSubmit = async (id?: string) => {
     const targetId = id || agentId
     if (!targetId.trim()) return
 
-    setLoading(true)
+    if (!walletAddress) {
+      setError({ code: 'wallet_required', message: 'Connect your wallet first' })
+      return
+    }
+
     setError(null)
     setResult(null)
+    setPreflight(null)
+    setDepositProgress(null)
 
     try {
-      const data = await openChannel(targetId.trim(), walletAddress || undefined)
+      // Step 1: Preflight — gate check + escrow address
+      setFlowStep('preflight')
+      const preflightData = await preflightChannel(targetId.trim(), walletAddress)
+      setPreflight(preflightData)
+
+      // Step 2: Deposit USDC to escrow
+      setFlowStep('depositing')
+      const depositResult = await depositToEscrow(
+        preflightData.escrowAddress,
+        preflightData.creditLine,
+        walletAddress,
+        signTransaction,
+        (p) => setDepositProgress(p),
+      )
+
+      if (!depositResult.success || !depositResult.txSignature) {
+        setError({
+          code: 'unknown',
+          message: depositResult.error || 'Escrow deposit failed',
+        })
+        setFlowStep('idle')
+        return
+      }
+
+      // Step 3: Open channel with deposit signature
+      setFlowStep('opening')
+      const data = await openChannel(targetId.trim(), walletAddress, depositResult.txSignature)
       setResult(data)
+      setFlowStep('done')
       onChannelOpened(data)
     } catch (err: unknown) {
       const apiError = err as { code?: string; message?: string; data?: { score?: number; tier?: string; riskLevel?: string } }
@@ -112,13 +165,20 @@ export function GateAgent({ walletAddress, onChannelOpened }: GateAgentProps) {
         tier: apiError.data?.tier,
         riskLevel: apiError.data?.riskLevel,
       })
-    } finally {
-      setLoading(false)
+      setFlowStep('idle')
     }
   }
 
   const ErrorDetail = error ? ERROR_DETAILS[error.code] || ERROR_DETAILS.unknown : null
   const ErrorIcon = ErrorDetail?.icon || AlertTriangle
+
+  const stepLabel = flowStep === 'preflight'
+    ? 'Checking trust...'
+    : flowStep === 'depositing'
+    ? 'Depositing to escrow...'
+    : flowStep === 'opening'
+    ? 'Opening channel...'
+    : 'Gate Agent'
 
   return (
     <Card className="border-border bg-card overflow-hidden">
@@ -130,7 +190,7 @@ export function GateAgent({ walletAddress, onChannelOpened }: GateAgentProps) {
           <div>
             <CardTitle className="text-base font-bold tracking-tight">Gate Agent & Open Channel</CardTitle>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Enter an agent ID to check their trust score and open a credit line
+              Enter an agent ID to check trust, deposit USDC to escrow, and open a credit line
             </p>
           </div>
         </div>
@@ -159,10 +219,10 @@ export function GateAgent({ walletAddress, onChannelOpened }: GateAgentProps) {
             type="submit"
             disabled={loading || !agentId.trim()}
             className="gap-2 shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 px-5 font-semibold w-full sm:w-auto"
-            aria-label={loading ? 'Checking trust score...' : 'Check trust score and open channel'}
+            aria-label={loading ? stepLabel : 'Check trust score and open channel'}
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
-            {loading ? 'Checking...' : 'Gate Agent'}
+            {stepLabel}
           </Button>
         </form>
 
@@ -185,6 +245,34 @@ export function GateAgent({ walletAddress, onChannelOpened }: GateAgentProps) {
             </button>
           ))}
         </div>
+
+        {/* Deposit Progress */}
+        {flowStep === 'depositing' && depositProgress && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-xl border border-chart-3/20 bg-chart-3/5 p-4 animate-fade-up"
+          >
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="flex items-center justify-center h-7 w-7 rounded-full bg-chart-3/20 border border-chart-3/30" aria-hidden="true">
+                <ArrowDownToLine className="h-3.5 w-3.5 text-chart-3" />
+              </div>
+              <span className="text-xs font-bold text-chart-3 capitalize">{depositProgress.step}</span>
+              {preflight && (
+                <Badge className={cn('ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-bold', getTierColor(preflight.tier as TierName))}>
+                  {preflight.tier}
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">{depositProgress.detail}</p>
+            {preflight && (
+              <div className="flex gap-3 mt-2 pt-2 border-t border-chart-3/10 text-[11px] text-muted-foreground">
+                <span>Deposit: <span className="font-mono font-semibold text-foreground">{preflight.creditLineReadable}</span></span>
+                <span>Escrow: <span className="font-mono text-foreground">{preflight.escrowAddress.slice(0, 8)}…</span></span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Error Panel */}
         {error && (
@@ -237,7 +325,7 @@ export function GateAgent({ walletAddress, onChannelOpened }: GateAgentProps) {
               <div className="flex items-center justify-center h-6 w-6 sm:h-7 sm:w-7 rounded-full bg-primary/20 border border-primary/30" aria-hidden="true">
                 <Check className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary" />
               </div>
-              <span className="text-xs sm:text-sm font-bold text-primary">Channel Ready</span>
+              <span className="text-xs sm:text-sm font-bold text-primary">Channel Ready — Deposit Confirmed</span>
               <Badge className={cn('ml-auto text-[10px] sm:text-[11px] px-1.5 sm:px-2 py-0.5 rounded-full font-bold', getTierColor(result.tier))}>
                 {result.tier}
               </Badge>
@@ -259,7 +347,7 @@ export function GateAgent({ walletAddress, onChannelOpened }: GateAgentProps) {
               </div>
               <div className="flex flex-col gap-0.5 sm:gap-1">
                 <span className="text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1 sm:gap-1.5 font-semibold">
-                  <CreditCard className="h-2.5 w-2.5 sm:h-3 sm:w-3" /> Credit
+                  <CreditCard className="h-2.5 w-2.5 sm:h-3 sm:w-3" /> Escrowed
                 </span>
                 <span className="text-base sm:text-lg font-mono font-bold text-foreground">{result.creditLineReadable}</span>
               </div>
@@ -273,7 +361,7 @@ export function GateAgent({ walletAddress, onChannelOpened }: GateAgentProps) {
             <div className="flex flex-col xs:flex-row gap-2 xs:gap-4 mt-3 sm:mt-4 pt-2.5 sm:pt-3 border-t border-primary/10">
               <span className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5">
                 <Hash className="h-2.5 w-2.5 sm:h-3 sm:w-3" /> Max Requests:
-                <span className="font-mono font-semibold text-foreground">{result.maxRequests}</span>
+                <span className="font-mono font-semibold text-foreground">{result.maxRequests ?? '∞'}</span>
               </span>
               <span className="text-[11px] sm:text-xs text-muted-foreground">
                 Session: <span className="font-mono font-semibold text-foreground">{result.sessionId.slice(0, 8)}...</span>

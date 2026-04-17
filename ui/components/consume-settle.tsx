@@ -161,6 +161,7 @@ export function ConsumeSettle({ channel }: ConsumeSettleProps) {
   const consumed = parseFloat((status?.consumedReadable || '$0.00').replace('$', ''))
   const creditLine = parseFloat((status?.creditLineReadable || channel.creditLineReadable).replace('$', ''))
   const remaining = creditLine - consumed
+  const maxRequests = status?.maxRequests ?? channel.maxRequests ?? Infinity
   const isActive = status?.active ?? true
   const isSettled = status?.settled || settlementResult !== null
 
@@ -206,10 +207,10 @@ export function ConsumeSettle({ channel }: ConsumeSettleProps) {
           />
           <Gauge
             label="Requests"
-            value={channel.maxRequests - requestCount}
-            max={channel.maxRequests}
-            displayValue={`${channel.maxRequests - requestCount}`}
-            unit={`/ ${channel.maxRequests}`}
+            value={maxRequests === Infinity ? requestCount : maxRequests - requestCount}
+            max={maxRequests === Infinity ? Math.max(requestCount, 1) : maxRequests}
+            displayValue={maxRequests === Infinity ? `${requestCount}` : `${maxRequests - requestCount}`}
+            unit={maxRequests === Infinity ? 'used' : `/ ${maxRequests}`}
             icon={<Hash className="h-3 w-3" />}
           />
         </div>
@@ -318,13 +319,27 @@ export function ConsumeSettle({ channel }: ConsumeSettleProps) {
               </div>
               <div className="flex flex-col gap-0.5 sm:gap-1">
                 <span className="text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Refunded</span>
-                <span className="text-base sm:text-lg font-mono font-bold text-primary">{settlementResult.unusedCreditReadable}</span>
+                <span className="text-base sm:text-lg font-mono font-bold text-primary">{settlementResult.refundReadable || settlementResult.unusedCreditReadable}</span>
               </div>
               <div className="flex flex-col gap-0.5 sm:gap-1">
                 <span className="text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Status</span>
                 <span className="text-base sm:text-lg font-bold text-primary">Finalized</span>
               </div>
             </div>
+            {settlementResult.refundSignature && (
+              <div className="mt-3 pt-2.5 border-t border-primary/10">
+                <span className="text-[11px] text-muted-foreground">
+                  Refund tx: <a
+                    href={`https://explorer.solana.com/tx/${settlementResult.refundSignature}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-primary hover:underline"
+                  >
+                    {settlementResult.refundSignature.slice(0, 16)}…
+                  </a>
+                </span>
+              </div>
+            )}
           </div>
         )}
 

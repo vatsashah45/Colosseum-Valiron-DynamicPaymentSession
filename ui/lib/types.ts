@@ -1,18 +1,31 @@
 // ─── API Response Types ───
 
+export interface PreflightResponse {
+  agentId: string
+  tier: string
+  score: number
+  riskLevel: string
+  creditLine: string
+  creditLineReadable: string
+  maxRequests: number | null
+  durationSeconds: number
+  escrowAddress: string
+}
+
 export interface OpenChannelResponse {
   sessionId: string
   agentId: string
   tier: TierName
   score: number
   riskLevel: string
-  creditLine: number
+  creditLine: string
   creditLineReadable: string
-  maxRequests: number
+  maxRequests: number | null
   expiresAt: string
   durationSeconds: number
-  walletVerified: boolean
-  walletBalance?: number
+  depositConfirmed: boolean
+  depositSignature: string
+  escrowAddress: string
 }
 
 export interface OpenChannelError {
@@ -25,26 +38,33 @@ export interface OpenChannelError {
 
 export interface ConsumeResponse {
   requestId: string
-  cost: number
+  cost: string
   costReadable: string
+  description?: string
   session: {
+    consumed: string
     consumedReadable: string
+    remaining: string
     remainingReadable: string
     requestCount: number
-    maxRequests: number
-    creditLineReadable: string
-    active: boolean
+    maxRequests: number | null
+    secondsRemaining: number
   }
 }
 
 export interface ChannelStatus {
   sessionId: string
+  agentId: string
   tier: TierName
+  creditLine: string
   creditLineReadable: string
+  consumed: string
   consumedReadable: string
+  remaining: string
   remainingReadable: string
   requestCount: number
-  maxRequests: number
+  maxRequests: number | null
+  expiresAt: string
   secondsRemaining: number
   active: boolean
   settled: boolean
@@ -53,9 +73,14 @@ export interface ChannelStatus {
 export interface SettleResponse {
   sessionId: string
   settled: boolean
+  totalConsumed: string
   totalConsumedReadable: string
   requestsServed: number
+  unusedCredit: string
   unusedCreditReadable: string
+  refundAmount?: string
+  refundReadable?: string
+  refundSignature?: string
 }
 
 // ─── UI Types ───

@@ -73,6 +73,7 @@ export default function Home() {
           {/* Section 1: Gate Agent */}
           <GateAgent
             walletAddress={wallet.address}
+            signTransaction={wallet.signTransaction}
             onChannelOpened={(data) => setChannel(data)}
           />
 
