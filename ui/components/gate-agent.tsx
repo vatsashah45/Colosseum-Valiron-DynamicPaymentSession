@@ -15,15 +15,6 @@ import { preflightChannel, openChannel } from '@/lib/api'
 import { depositToEscrow, type DepositProgress } from '@/lib/solana-payment'
 import type { OpenChannelResponse, PreflightResponse, ErrorCode, TierName } from '@/lib/types'
 
-// Real Valiron agent IDs from the Solana edge proxy.
-// Valiron uses sequential numeric IDs (see demo/simulate.ts).
-const SAMPLE_AGENTS = [
-  { id: '999', label: 'Alpha' },   // score ~85, tier A (passes gate)
-  { id: '1', label: 'Beta' },      // score ~65, tier BA
-  { id: '42', label: 'Gamma' },    // score ~65, tier BA
-  { id: '99999', label: 'Risky' }, // not registered → rejected
-]
-
 const ERROR_DETAILS: Record<string, { icon: typeof Shield; title: string; description: string; action: string }> = {
   agent_rejected: {
     icon: Ban,
@@ -216,7 +207,9 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
           <div>
             <CardTitle className="text-base font-bold tracking-tight">Gate Agent & Open Channel</CardTitle>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Enter an agent ID to check trust, deposit USDC on Devnet to escrow, and open a credit line. Please note, you will also need a small amount of SOL (Devnet) to pay for the transaction fee.
+                            Enter an{' '}
+                <a href="https://8004.qnt.sh" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">ERC-8004</a>
+                {' '}agent ID to check trust via Valiron, deposit USDC on Devnet to escrow, and open a credit line. You will also need a small amount of SOL (Devnet) for the transaction fee.
             </p>
           </div>
         </div>
@@ -232,7 +225,7 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
           <label htmlFor="agent-id-input" className="sr-only">Agent ID</label>
           <Input
             id="agent-id-input"
-            placeholder="Enter agent ID (e.g. 999)"
+            placeholder="Enter ERC-8004 agent ID"
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
             className="font-mono text-sm bg-secondary/60 border-border h-10"
@@ -252,25 +245,27 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
           </Button>
         </form>
 
-        {/* Sample Agents */}
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2" role="group" aria-label="Sample agents to try">
-          <span className="text-[11px] sm:text-xs text-muted-foreground font-medium" id="sample-agents-label">Try:</span>
-          {SAMPLE_AGENTS.map((agent) => (
-            <button
-              key={agent.id}
-              type="button"
-              onClick={() => {
-                setAgentId(agent.id)
-                handleSubmit(agent.id)
-              }}
-              disabled={loading}
-              className="rounded-full border border-border bg-secondary/40 px-2.5 sm:px-3 py-0.5 sm:py-1 text-[11px] sm:text-xs font-mono text-muted-foreground transition-all cursor-pointer hover:border-primary/40 hover:text-primary hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label={`Try agent ${agent.label}`}
-            >
-              {agent.label}
-            </button>
-          ))}
-        </div>
+        {/* Registry link */}
+        <p className="text-[11px] sm:text-xs text-muted-foreground">
+          Find registered agents at{' '}
+          <a
+            href="https://8004.qnt.sh"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline font-medium"
+          >
+            8004.qnt.sh
+          </a>
+          {' '}or the{' '}
+          <a
+            href="https://www.valiron.co/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline font-medium"
+          >
+            Valiron docs
+          </a>
+        </p>
 
         {/* Deposit Progress */}
         {flowStep === 'depositing' && depositProgress && (
