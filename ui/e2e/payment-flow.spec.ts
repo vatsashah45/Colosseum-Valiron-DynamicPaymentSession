@@ -116,8 +116,9 @@ test.describe('Gate agent flow', () => {
     await mockHealth(page)
 
     // Delay the preflight response so we can observe the loading state
+    const LOADING_STATE_DELAY_MS = 200
     await page.route(`**/api/channel/preflight/**`, async (route) => {
-      await new Promise((r) => setTimeout(r, 2000))
+      await new Promise((r) => setTimeout(r, LOADING_STATE_DELAY_MS))
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
