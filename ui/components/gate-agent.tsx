@@ -159,6 +159,7 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
       )
 
       if (!depositResult.success || !depositResult.txSignature) {
+        console.error('[GateAgent] Deposit failed:', depositResult)
         setError({
           code: 'unknown',
           message: depositResult.error || 'Escrow deposit failed',
@@ -174,7 +175,9 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
       setFlowStep('done')
       onChannelOpened(data)
     } catch (err: unknown) {
-      const apiError = err as { code?: string; message?: string; data?: { score?: number; tier?: string; riskLevel?: string } }
+      console.error('[GateAgent] Caught error at flowStep:', flowStep, err)
+      const apiError = err as { code?: string; message?: string; status?: number; data?: { score?: number; tier?: string; riskLevel?: string } }
+      console.error('[GateAgent] Error details — code:', apiError.code, 'message:', apiError.message, 'status:', apiError.status, 'data:', apiError.data)
       setError({
         code: (apiError.code as ErrorCode) || 'unknown',
         message: apiError.message || 'An unexpected error occurred',

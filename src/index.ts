@@ -16,6 +16,9 @@ import type {
 const app = express();
 app.use(express.json());
 
+// Cache preflight gate results for 5 minutes so /channel/open doesn't re-gate
+const preflightCache = new Map<string, { gate: Awaited<ReturnType<typeof gateAgent>>; expires: number }>();
+
 // CORS — needed when UI dev server (port 3000) calls backend directly (port 4000)
 app.use((_req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "*");
@@ -119,6 +122,10 @@ app.post("/channel/preflight/:agentId", async (req, res) => {
       return;
     }
 
+    // Cache gate result so /channel/open can reuse it (5 min TTL)
+    const cacheKey = `${walletAddress}:${agentId}`;
+    preflightCache.set(cacheKey, { gate, expires: Date.now() + 5 * 60_000 });
+
     const response: PreflightResponse = {
       agentId,
       tier: gate.result.tier,
@@ -183,7 +190,17 @@ app.post("/channel/open/:agentId", async (req, res) => {
   }
 
   try {
-    const gate = await gateAgent(agentId);
+    // Use cached gate result from preflight if available (avoids re-gating after deposit)
+    const cacheKey = `${walletAddress}:${agentId}`;
+    const cached = preflightCache.get(cacheKey);
+    let gate;
+    if (cached && cached.expires > Date.now() && cached.gate.allowed) {
+      gate = cached.gate;
+      preflightCache.delete(cacheKey);
+      console.log(`Using cached gate result for ${cacheKey}: score=${gate.result.score} tier=${gate.result.tier}`);
+    } else {
+      gate = await gateAgent(agentId);
+    }
 
     if (!gate.allowed || !gate.policy) {
       res.status(403).json({

@@ -71,13 +71,19 @@ export async function verifyDeposit(
   }
 
   try {
-    const tx = await connection.getTransaction(txSignature, {
-      commitment: "finalized",
-      maxSupportedTransactionVersion: 0,
-    });
+    // Retry up to 15 times (≈30 s) – devnet indexing can lag behind confirmation
+    let tx: Awaited<ReturnType<typeof connection.getTransaction>> = null;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      tx = await connection.getTransaction(txSignature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      if (tx) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
 
     if (!tx) {
-      return { verified: false, error: "Transaction not found on-chain. It may still be finalizing." };
+      return { verified: false, error: "Transaction not found on-chain after waiting 30 s." };
     }
 
     if (tx.meta?.err) {

@@ -96,15 +96,19 @@ export async function depositToEscrow(
 
     // Sign with Phantom
     onProgress?.({ step: "signing", detail: "Waiting for wallet signature…" });
+    console.log('[depositToEscrow] TX built, requesting Phantom signature...');
     const signedTx = await signTransaction(tx);
+    console.log('[depositToEscrow] Phantom signed successfully');
 
     // Submit on-chain
     onProgress?.({ step: "submitting", detail: "Submitting deposit to Solana…" });
+    console.log('[depositToEscrow] Serializing and submitting to devnet...');
     const rawTx = (signedTx as Transaction).serialize();
     const txSignature = await connection.sendRawTransaction(rawTx, {
-      skipPreflight: false,
+      skipPreflight: true,
       preflightCommitment: "confirmed",
     });
+    console.log('[depositToEscrow] TX submitted:', txSignature);
 
     // Wait for confirmation
     await connection.confirmTransaction(txSignature, "confirmed");
@@ -117,7 +121,9 @@ export async function depositToEscrow(
 
     return { success: true, txSignature };
   } catch (err) {
+    console.error('[depositToEscrow] Full error:', err);
     const msg = err instanceof Error ? err.message : String(err);
+    console.error('[depositToEscrow] Error message:', msg);
     onProgress?.({ step: "error", detail: msg });
     return { success: false, error: msg };
   }
