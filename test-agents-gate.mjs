@@ -7,7 +7,7 @@ const agents = [
 async function main() {
   for (const id of agents) {
     try {
-      const res = await fetch(`http://localhost:3000/channel/open/${id}`, { method: "POST" });
+      const res = await fetch(`http://localhost:4000/channel/open/${id}`, { method: "POST" });
       const d = await res.json();
       const ok = res.status === 200;
       console.log(`${id}: score=${d.score ?? "?"} tier=${d.tier ?? "?"} risk=${d.riskLevel ?? "?"} → ${ok ? "ACCEPTED (sid=" + d.sessionId + ")" : "REJECTED"}`);

@@ -97,8 +97,10 @@ export function ConsumeSettle({ channel }: ConsumeSettleProps) {
       let bannerMsg = apiErr.message || 'Could not process request'
       let bannerType: 'error' | 'warning' = 'error'
 
-      if (statusCode === 403) bannerMsg = 'Session expired. Please open a new channel.'
-      else if (statusCode === 410) bannerMsg = 'This channel has already been settled.'
+      if (statusCode === 403) bannerMsg = 'Cost exceeds remaining credit.'
+      else if (statusCode === 404) bannerMsg = 'Channel not found.'
+      else if (statusCode === 409) bannerMsg = 'Channel is already settled.'
+      else if (statusCode === 410) bannerMsg = 'Channel has expired. Please open a new one.'
       else if (statusCode === 429) { bannerMsg = 'Request limit reached. Settle this channel to continue.'; bannerType = 'warning' }
       else if (statusCode >= 500) bannerMsg = 'Server unavailable. Please try again in a moment.'
 

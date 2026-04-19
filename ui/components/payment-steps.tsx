@@ -17,11 +17,12 @@ interface PaymentStepsProps {
 export function PaymentSteps({ currentStep, error }: PaymentStepsProps) {
   if (currentStep === 'idle') return null
 
-  const currentIndex = STEPS.findIndex((s) => s.key === currentStep)
   const isError = currentStep === 'error'
+  // When in error state, show all steps as failed from the last one
+  const currentIndex = isError ? STEPS.length - 1 : STEPS.findIndex((s) => s.key === currentStep)
 
   const currentStepName = STEPS[currentIndex]?.label || 'Processing'
-  const progressPercent = Math.round((currentIndex / (STEPS.length - 1)) * 100)
+  const progressPercent = isError ? 100 : Math.round((currentIndex / (STEPS.length - 1)) * 100)
 
   return (
     <section 

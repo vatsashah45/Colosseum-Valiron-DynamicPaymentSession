@@ -332,8 +332,11 @@ export class SessionManager {
     if (this.fallback) return; // In-memory iterates directly
     const walletKey = `${WALLET_PREFIX}${walletAddress}`;
     await this.redis!.sadd(walletKey, sessionId);
-    // Extend TTL to cover the longest session
-    await this.redis!.expire(walletKey, ttlSeconds);
+    // Only extend TTL — never shorten it if a longer session already exists
+    const currentTtl = await this.redis!.ttl(walletKey);
+    if (currentTtl < 0 || currentTtl < ttlSeconds) {
+      await this.redis!.expire(walletKey, ttlSeconds);
+    }
   }
 
   /** Remove a session from the wallet's session set after settlement. */

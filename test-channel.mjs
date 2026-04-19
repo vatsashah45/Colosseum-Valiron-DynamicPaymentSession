@@ -1,4 +1,4 @@
-const BASE = "http://localhost:3000";
+const BASE = "http://localhost:4000";
 
 async function main() {
   // 1. Open channel
