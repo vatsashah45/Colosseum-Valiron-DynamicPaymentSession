@@ -16,9 +16,16 @@ import type {
 const app = express();
 app.use(express.json());
 
-// Expose WWW-Authenticate header to browser fetch
+// CORS — needed when UI dev server (port 3000) calls backend directly (port 4000)
 app.use((_req, res, next) => {
-  res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate, Payment-Receipt");
+  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Expose-Headers", "Payment-Receipt");
+  if (_req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
   next();
 });
 

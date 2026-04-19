@@ -1,14 +1,11 @@
 'use client'
 
-import { Check, Loader2, AlertCircle, Lock, Hammer, PenTool, Send, CheckCircle2 } from 'lucide-react'
+import { Check, Loader2, AlertCircle, Send, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { PaymentStep } from '@/lib/types'
 
-const STEPS: { key: PaymentStep; label: string; shortLabel: string; icon: typeof Lock }[] = [
-  { key: 'challenge', label: 'Verifying', shortLabel: 'Ver', icon: Lock },
-  { key: 'building', label: 'Preparing', shortLabel: 'Prep', icon: Hammer },
-  { key: 'signing', label: 'Signing', shortLabel: 'Sign', icon: PenTool },
-  { key: 'submitting', label: 'Submitting', shortLabel: 'Send', icon: Send },
+const STEPS: { key: PaymentStep; label: string; shortLabel: string; icon: typeof Send }[] = [
+  { key: 'submitting', label: 'Settling', shortLabel: 'Settle', icon: Send },
   { key: 'confirmed', label: 'Complete', shortLabel: 'Done', icon: CheckCircle2 },
 ]
 

@@ -105,9 +105,6 @@ export type ErrorCode =
 
 export type PaymentStep =
   | 'idle'
-  | 'challenge'
-  | 'building'
-  | 'signing'
   | 'submitting'
   | 'confirmed'
   | 'error'
@@ -126,14 +123,14 @@ export interface TierPolicy {
   scoreRange: string
   creditLine: string
   duration: string
-  maxRequests: number
+  maxRequests: number | null
 }
 
 export const TIER_POLICIES: TierPolicy[] = [
-  { tier: 'AAA', label: 'Prime', scoreRange: '900-1000', creditLine: '$100.00', duration: '60 min', maxRequests: 1000 },
-  { tier: 'AA', label: 'High Grade', scoreRange: '800-899', creditLine: '$50.00', duration: '45 min', maxRequests: 500 },
-  { tier: 'A', label: 'Upper Medium', scoreRange: '700-799', creditLine: '$25.00', duration: '30 min', maxRequests: 250 },
-  { tier: 'BAA', label: 'Medium', scoreRange: '600-699', creditLine: '$10.00', duration: '20 min', maxRequests: 100 },
-  { tier: 'BA', label: 'Speculative', scoreRange: '500-599', creditLine: '$5.00', duration: '10 min', maxRequests: 50 },
-  { tier: 'B', label: 'Highly Speculative', scoreRange: '400-499', creditLine: '$2.00', duration: '5 min', maxRequests: 25 },
+  { tier: 'AAA', label: 'Prime', scoreRange: '900-1000', creditLine: '$100.00', duration: '60 min', maxRequests: null },
+  { tier: 'AA', label: 'High Grade', scoreRange: '800-899', creditLine: '$50.00', duration: '45 min', maxRequests: 50 },
+  { tier: 'A', label: 'Upper Medium', scoreRange: '700-799', creditLine: '$25.00', duration: '30 min', maxRequests: 30 },
+  { tier: 'BAA', label: 'Medium', scoreRange: '600-699', creditLine: '$10.00', duration: '20 min', maxRequests: 20 },
+  { tier: 'BA', label: 'Speculative', scoreRange: '500-599', creditLine: '$5.00', duration: '10 min', maxRequests: 10 },
+  { tier: 'B', label: 'Highly Speculative', scoreRange: '400-499', creditLine: '$2.00', duration: '5 min', maxRequests: 5 },
 ]

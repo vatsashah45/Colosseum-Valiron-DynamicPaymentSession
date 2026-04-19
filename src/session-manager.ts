@@ -8,6 +8,7 @@ import type { Session, SessionPolicy, UsageRecord } from "./types.js";
 
 const SESSION_PREFIX = "session:";
 const DEPOSIT_PREFIX = "deposit:";
+const WALLET_PREFIX = "wallet:";
 // Extra buffer beyond channel expiry so settled sessions remain queryable
 const TTL_BUFFER_SECONDS = 300;
 
@@ -135,6 +136,8 @@ export class SessionManager {
     };
 
     await this.save(session);
+    // Track wallet → session mapping for unsettled debt lookups
+    await this.addWalletSession(walletAddress, session.sessionId, policy.durationSeconds + TTL_BUFFER_SECONDS);
     return session;
   }
 
@@ -224,6 +227,8 @@ export class SessionManager {
     session.settled = true;
     session.settlementSignature = signature;
     await this.save(session);
+    // Remove from wallet index — no longer counts as debt
+    await this.removeWalletSession(session.walletAddress, sessionId);
     return session;
   }
 
@@ -299,9 +304,42 @@ export class SessionManager {
       }
       return { hasDebt: false };
     }
-    // For Redis: we'd need a secondary index (wallet → sessions).
-    // For now, this is handled by the in-memory fallback.
-    // In production, use a Redis sorted set or separate key per wallet.
+    // Redis: look up wallet → session set, check each session
+    const walletKey = `${WALLET_PREFIX}${walletAddress}`;
+    const sessionIds = await this.redis!.smembers(walletKey);
+    for (const sid of sessionIds) {
+      const session = await this.get(sid);
+      if (!session) {
+        // Session expired from Redis TTL — clean up stale set entry
+        await this.redis!.srem(walletKey, sid);
+        continue;
+      }
+      if (
+        !session.settled &&
+        session.consumed > 0 &&
+        (!session.active || new Date() >= session.expiresAt)
+      ) {
+        return { hasDebt: true, sessionId: session.sessionId, amount: session.consumed };
+      }
+    }
     return { hasDebt: false };
+  }
+
+  // ─── Wallet index helpers ──────────────────────────────────────────────
+
+  /** Add a session to the wallet's session set in Redis. */
+  private async addWalletSession(walletAddress: string, sessionId: string, ttlSeconds: number): Promise<void> {
+    if (this.fallback) return; // In-memory iterates directly
+    const walletKey = `${WALLET_PREFIX}${walletAddress}`;
+    await this.redis!.sadd(walletKey, sessionId);
+    // Extend TTL to cover the longest session
+    await this.redis!.expire(walletKey, ttlSeconds);
+  }
+
+  /** Remove a session from the wallet's session set after settlement. */
+  private async removeWalletSession(walletAddress: string, sessionId: string): Promise<void> {
+    if (this.fallback) return;
+    const walletKey = `${WALLET_PREFIX}${walletAddress}`;
+    await this.redis!.srem(walletKey, sessionId);
   }
 }

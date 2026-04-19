@@ -56,6 +56,10 @@ export function ConsumeSettle({ channel }: ConsumeSettleProps) {
     try {
       const data = await getChannelStatus(channel.sessionId)
       setStatus(data)
+      // Stop polling when the channel is no longer active
+      if (data.settled || !data.active) {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+      }
       return data
     } catch {
       return null
@@ -73,7 +77,10 @@ export function ConsumeSettle({ channel }: ConsumeSettleProps) {
 
   const handleConsume = async () => {
     const costNum = parseFloat(cost)
-    if (isNaN(costNum) || costNum <= 0) return
+    if (isNaN(costNum) || costNum <= 0) {
+      setBanner({ type: 'warning', message: 'Enter a valid cost greater than $0.00.' })
+      return
+    }
 
     setConsuming(true)
     setBanner(null)
@@ -105,44 +112,16 @@ export function ConsumeSettle({ channel }: ConsumeSettleProps) {
   const handleSettle = async () => {
     setSettling(true)
     setBanner(null)
-    setPaymentStep('challenge')
+    setPaymentStep('submitting')
     setPaymentError(null)
     setSettlementResult(null)
 
     try {
-      // Step 1: Initial settle call (may return 402 challenge)
-      const firstResult = await settleChannel(channel.sessionId)
-
-      if ('status' in firstResult && firstResult.status === 402) {
-        addLog('info', 'Verifying payment authorization...', firstResult.wwwAuthenticate)
-
-        setPaymentStep('building')
-        // Simulate building a payment transaction
-        await new Promise((r) => setTimeout(r, 800))
-
-        setPaymentStep('signing')
-        // Simulate signing
-        await new Promise((r) => setTimeout(r, 1000))
-
-        setPaymentStep('submitting')
-        // Submit with payment credential
-        const credential = btoa(`${channel.sessionId}:${Date.now()}`)
-        const secondResult = await settleChannel(channel.sessionId, credential)
-
-        if ('settled' in secondResult && secondResult.settled) {
-          setPaymentStep('confirmed')
-          setSettlementResult(secondResult as SettleResponse)
-          addLog('settle', `Finalized: ${(secondResult as SettleResponse).totalConsumedReadable} paid`, `${(secondResult as SettleResponse).requestsServed} requests processed`)
-          setBanner({ type: 'success', message: 'Settlement complete. Funds transferred on Solana.' })
-        }
-      } else if ('settled' in firstResult) {
-        // Direct settlement (no challenge)
-        setPaymentStep('confirmed')
-        setSettlementResult(firstResult as SettleResponse)
-        addLog('settle', `Finalized: ${(firstResult as SettleResponse).totalConsumedReadable} paid`)
-        setBanner({ type: 'success', message: 'Settlement complete. Unused credit returned.' })
-      }
-
+      const result = await settleChannel(channel.sessionId)
+      setPaymentStep('confirmed')
+      setSettlementResult(result)
+      addLog('settle', `Finalized: ${result.totalConsumedReadable} paid`, `${result.requestsServed} requests processed`)
+      setBanner({ type: 'success', message: 'Settlement complete. Unused credit returned.' })
       if (pollRef.current) clearInterval(pollRef.current)
     } catch (err: unknown) {
       const apiErr = err as { message?: string }

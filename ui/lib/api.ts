@@ -84,40 +84,8 @@ export async function getChannelStatus(sessionId: string): Promise<ChannelStatus
   return request<ChannelStatus>(`/api/channel/status/${sessionId}`)
 }
 
-export async function settleChannel(
-  sessionId: string,
-  paymentCredential?: string
-): Promise<SettleResponse | { status: number; wwwAuthenticate: string }> {
-  const headers: Record<string, string> = {}
-
-  if (paymentCredential) {
-    headers['Authorization'] = `Payment ${paymentCredential}`
-  }
-
-  const res = await fetch(`${API_BASE}/api/channel/settle/${sessionId}`, {
+export async function settleChannel(sessionId: string): Promise<SettleResponse> {
+  return request<SettleResponse>(`/api/channel/settle/${sessionId}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
   })
-
-  if (res.status === 402) {
-    const wwwAuthenticate = res.headers.get('WWW-Authenticate') || ''
-    return { status: 402, wwwAuthenticate }
-  }
-
-  const data = await res.json()
-
-  if (!res.ok) {
-    const error = new Error(data.message || `Settlement failed (${res.status})`) as Error & {
-      status: number
-      code: string
-    }
-    error.status = res.status
-    error.code = data.error || 'unknown'
-    throw error
-  }
-
-  return data as SettleResponse
 }

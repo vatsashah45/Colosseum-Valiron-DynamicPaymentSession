@@ -93,7 +93,7 @@ export function TierTable({ activeTier }: TierTableProps) {
                         <span className="text-[11px] sm:text-xs font-mono text-foreground">{policy.duration}</span>
                       </TableCell>
                       <TableCell className="py-2 sm:py-2.5 text-right">
-                        <span className="text-[11px] sm:text-xs font-mono text-foreground tabular-nums">{policy.maxRequests.toLocaleString()}</span>
+                        <span className="text-[11px] sm:text-xs font-mono text-foreground tabular-nums">{policy.maxRequests === null ? '∞' : policy.maxRequests.toLocaleString()}</span>
                       </TableCell>
                     </TableRow>
                   )
