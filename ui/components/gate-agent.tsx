@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { preflightChannel, openChannel } from '@/lib/api'
+import { preflightChannel, openChannel, settleChannel } from '@/lib/api'
 import { depositToEscrow, type DepositProgress } from '@/lib/solana-payment'
 import type { OpenChannelResponse, PreflightResponse, ErrorCode, TierName } from '@/lib/types'
 
@@ -176,14 +176,27 @@ export function GateAgent({ walletAddress, signTransaction, onChannelOpened }: G
       onChannelOpened(data)
     } catch (err: unknown) {
       console.error('[GateAgent] Caught error at flowStep:', flowStep, err)
-      const apiError = err as { code?: string; message?: string; status?: number; data?: { score?: number; tier?: string; riskLevel?: string } }
-      console.error('[GateAgent] Error details — code:', apiError.code, 'message:', apiError.message, 'status:', apiError.status, 'data:', apiError.data)
+      const apiError = err as { code?: string; message?: string; status?: number; data?: Record<string, unknown> }
+
+      // Auto-settle outstanding channel and retry
+      if (apiError.code === 'unsettled_debt' && apiError.data?.outstandingSession) {
+        try {
+          setFlowStep('preflight')
+          await settleChannel(apiError.data.outstandingSession as string)
+          // Retry the whole flow
+          handleSubmit()
+          return
+        } catch {
+          // Settlement failed — show original error
+        }
+      }
+
       setError({
         code: (apiError.code as ErrorCode) || 'unknown',
         message: apiError.message || 'An unexpected error occurred',
-        score: apiError.data?.score,
-        tier: apiError.data?.tier,
-        riskLevel: apiError.data?.riskLevel,
+        score: (apiError.data?.score as number | undefined),
+        tier: (apiError.data?.tier as string | undefined),
+        riskLevel: (apiError.data?.riskLevel as string | undefined),
       })
       setFlowStep('idle')
     }

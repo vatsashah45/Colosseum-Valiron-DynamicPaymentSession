@@ -436,69 +436,23 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
   const remaining = session.creditLine - session.consumed;
 
   // If nothing was consumed, full refund
-  if (session.consumed === 0) {
-    const refundResult = await sendRefund(session.walletAddress, session.creditLine);
+  // Attempt refund if there's unused credit
+  let refundSignature: string | undefined;
+  let refundWarning: string | undefined;
+  const refundAmount = session.consumed === 0 ? session.creditLine : remaining;
 
+  if (refundAmount > 0) {
+    const refundResult = await sendRefund(session.walletAddress, refundAmount);
     if ("error" in refundResult) {
-      console.error("Full refund failed:", refundResult.error);
-      res.status(500).json({
-        error: "refund_failed",
-        message: refundResult.error,
-      });
-      return;
+      console.error("Refund failed (settling anyway):", refundResult.error);
+      refundWarning = refundResult.error;
+    } else {
+      refundSignature = refundResult.signature;
     }
-
-    await sessions.settle(session.sessionId, refundResult.signature);
-
-    const response: SettlementResponse = {
-      sessionId: session.sessionId,
-      settled: true,
-      totalConsumed: "0",
-      totalConsumedReadable: "$0.00",
-      requestsServed: 0,
-      unusedCredit: String(session.creditLine),
-      unusedCreditReadable: formatUSDC(session.creditLine),
-      refundAmount: String(session.creditLine),
-      refundReadable: formatUSDC(session.creditLine),
-      refundSignature: refundResult.signature,
-    };
-    res.json(response);
-    return;
   }
 
-  // Partial refund: return unused credit, keep consumed portion
-  if (remaining > 0) {
-    const refundResult = await sendRefund(session.walletAddress, remaining);
-
-    if ("error" in refundResult) {
-      console.error("Refund failed:", refundResult.error);
-      res.status(500).json({
-        error: "refund_failed",
-        message: refundResult.error,
-      });
-      return;
-    }
-
-    await sessions.settle(session.sessionId, refundResult.signature);
-
-    const response: SettlementResponse = {
-      sessionId: session.sessionId,
-      settled: true,
-      totalConsumed: String(session.consumed),
-      totalConsumedReadable: formatUSDC(session.consumed),
-      requestsServed: session.requestCount,
-      unusedCredit: String(remaining),
-      unusedCreditReadable: formatUSDC(remaining),
-      refundAmount: String(remaining),
-      refundReadable: formatUSDC(remaining),
-      refundSignature: refundResult.signature,
-    };
-    res.json(response);
-    return;
-  }
-
-  // Entire credit line consumed — nothing to refund
-  await sessions.settle(session.sessionId);
+  // Always mark as settled — even if refund failed
+  await sessions.settle(session.sessionId, refundSignature);
 
   const response: SettlementResponse = {
     sessionId: session.sessionId,
@@ -506,8 +460,14 @@ app.post("/channel/settle/:sessionId", async (req, res) => {
     totalConsumed: String(session.consumed),
     totalConsumedReadable: formatUSDC(session.consumed),
     requestsServed: session.requestCount,
-    unusedCredit: "0",
-    unusedCreditReadable: "$0.00",
+    unusedCredit: String(refundAmount),
+    unusedCreditReadable: formatUSDC(refundAmount),
+    ...(refundSignature ? {
+      refundAmount: String(refundAmount),
+      refundReadable: formatUSDC(refundAmount),
+      refundSignature,
+    } : {}),
+    ...(refundWarning ? { refundWarning } : {}),
   };
   res.json(response);
 
