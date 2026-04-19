@@ -74,12 +74,12 @@ export function TierTable({ activeTier }: TierTableProps) {
                       )}
                       aria-selected={isActive}
                     >
-                      <TableCell scope="row" className="py-2 sm:py-2.5 sticky left-0 bg-card z-10">
+                      <TableHead scope="row" className="py-2 sm:py-2.5 sticky left-0 bg-card z-10 font-normal">
                         <span className={cn('text-xs sm:text-sm font-mono font-bold', getTierAccent(policy.tier))}>
                           {policy.tier}
                           {isActive && <span className="sr-only"> (current tier)</span>}
                         </span>
-                      </TableCell>
+                      </TableHead>
                       <TableCell className="py-2 sm:py-2.5">
                         <span className="text-[11px] sm:text-xs text-muted-foreground font-medium">{policy.label}</span>
                       </TableCell>
