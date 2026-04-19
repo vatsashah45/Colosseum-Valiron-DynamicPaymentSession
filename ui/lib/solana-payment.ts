@@ -12,8 +12,8 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 
-const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
-const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const DEVNET_RPC = "https://api.devnet.solana.com";
+const USDC_MINT = process.env.NEXT_PUBLIC_USDC_MINT || "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr";
 const USDC_DECIMALS = 6;
 
 // ─── Escrow Deposit ─────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export async function depositToEscrow(
   });
 
   try {
-    const connection = new Connection(MAINNET_RPC, "confirmed");
+    const connection = new Connection(DEVNET_RPC, "confirmed");
     const payer = new PublicKey(walletPublicKey);
     const mint = new PublicKey(USDC_MINT);
     const escrow = new PublicKey(escrowAddress);

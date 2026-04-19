@@ -23,9 +23,10 @@ export const CONFIG = {
   solana: {
     network: (process.env.SOLANA_NETWORK || "devnet") as "devnet" | "mainnet-beta",
     recipient: process.env.RECIPIENT_WALLET || "",
-    usdcMint:
-      process.env.USDC_MINT ||
-      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    get usdcMint() {
+      return process.env.USDC_MINT ||
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    },
     decimals: 6,
     rpcUrl: process.env.SOLANA_RPC_URL,
   },
