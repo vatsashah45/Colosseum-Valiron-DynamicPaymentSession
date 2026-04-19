@@ -16,9 +16,16 @@ import type {
 const app = express();
 app.use(express.json());
 
-// Expose WWW-Authenticate header to browser fetch
+// CORS — needed when UI dev server (port 3000) calls backend directly (port 4000)
 app.use((_req, res, next) => {
-  res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate, Payment-Receipt");
+  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Expose-Headers", "Payment-Receipt");
+  if (_req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
   next();
 });
 
@@ -127,6 +134,14 @@ app.post("/channel/preflight/:agentId", async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error("Gate error:", err);
+    const e = err as { statusCode?: number; message?: string };
+    if (e?.statusCode === 404) {
+      res.status(404).json({
+        error: "agent_rejected",
+        message: "Agent not registered with Valiron on Solana.",
+      });
+      return;
+    }
     res.status(502).json({
       error: "gate_unavailable",
       message: "Could not reach Valiron trust service.",
@@ -240,6 +255,14 @@ app.post("/channel/open/:agentId", async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error("Open error:", err);
+    const e = err as { statusCode?: number };
+    if (e?.statusCode === 404) {
+      res.status(404).json({
+        error: "agent_rejected",
+        message: "Agent not registered with Valiron on Solana.",
+      });
+      return;
+    }
     res.status(502).json({
       error: "gate_unavailable",
       message: "Could not reach Valiron trust service.",

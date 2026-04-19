@@ -1,157 +1,92 @@
-const API = "/api";
+import type {
+  PreflightResponse,
+  OpenChannelResponse,
+  OpenChannelError,
+  ConsumeResponse,
+  ChannelStatus,
+  SettleResponse,
+} from './types'
 
-export interface PreflightResponse {
-  agentId: string;
-  tier: string;
-  score: number;
-  riskLevel: string;
-  creditLine: string;
-  creditLineReadable: string;
-  maxRequests: number | null;
-  durationSeconds: number;
-  escrowAddress: string;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const { headers: extraHeaders, ...rest } = options ?? {}
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...rest,
+    headers: {
+      'Content-Type': 'application/json',
+      ...extraHeaders,
+    },
+  })
+
+  const data = await res.json()
+
+  if (!res.ok) {
+    const err = data as OpenChannelError
+    const error = new Error(err.message || `Request failed (${res.status})`) as Error & {
+      status: number
+      code: string
+      data: OpenChannelError
+    }
+    error.status = res.status
+    error.code = err.error || 'unknown'
+    error.data = err
+    throw error
+  }
+
+  return data as T
 }
 
-export interface ChannelOpenResponse {
-  sessionId: string;
-  agentId: string;
-  tier: string;
-  score: number;
-  riskLevel: string;
-  creditLine: string;
-  creditLineReadable: string;
-  maxRequests: number | null;
-  expiresAt: string;
-  durationSeconds: number;
-  depositConfirmed: boolean;
-  depositSignature: string;
-  escrowAddress: string;
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/health`, { method: 'GET' })
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
-export interface ConsumeResponse {
-  requestId: string;
-  cost: string;
-  costReadable: string;
-  description?: string;
-  session: {
-    consumed: string;
-    consumedReadable: string;
-    remaining: string;
-    remainingReadable: string;
-    requestCount: number;
-    maxRequests: number | null;
-    secondsRemaining: number;
-  };
-}
-
-export interface ChannelStatusResponse {
-  sessionId: string;
-  agentId: string;
-  tier: string;
-  creditLine: string;
-  creditLineReadable: string;
-  consumed: string;
-  consumedReadable: string;
-  remaining: string;
-  remainingReadable: string;
-  requestCount: number;
-  maxRequests: number | null;
-  expiresAt: string;
-  secondsRemaining: number;
-  active: boolean;
-  settled: boolean;
-}
-
-export interface SettlementResponse {
-  sessionId: string;
-  settled: boolean;
-  totalConsumed: string;
-  totalConsumedReadable: string;
-  requestsServed: number;
-  unusedCredit: string;
-  unusedCreditReadable: string;
-  refundAmount?: string;
-  refundReadable?: string;
-  refundSignature?: string;
-}
-
-export interface ErrorResponse {
-  error: string;
-  score?: number;
-  tier?: string;
-  riskLevel?: string;
-  message: string;
-}
-
-export async function preflightChannel(agentId: string, walletAddress: string): Promise<{
-  status: number;
-  data: PreflightResponse | ErrorResponse;
-}> {
-  const res = await fetch(`${API}/channel/preflight/${agentId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+export async function preflightChannel(
+  agentId: string,
+  walletAddress: string
+): Promise<PreflightResponse> {
+  return request<PreflightResponse>(`/api/channel/preflight/${agentId}`, {
+    method: 'POST',
     body: JSON.stringify({ walletAddress }),
-  });
-  const data = await res.json();
-  return { status: res.status, data };
+  })
 }
 
 export async function openChannel(
   agentId: string,
   walletAddress: string,
-  depositSignature: string,
-): Promise<{
-  status: number;
-  data: ChannelOpenResponse | ErrorResponse;
-}> {
-  const res = await fetch(`${API}/channel/open/${agentId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  depositSignature: string
+): Promise<OpenChannelResponse> {
+  return request<OpenChannelResponse>(`/api/channel/open/${agentId}`, {
+    method: 'POST',
     body: JSON.stringify({ walletAddress, depositSignature }),
-  });
-  const data = await res.json();
-  return { status: res.status, data };
+  })
 }
 
-export async function consume(
+export async function consumeService(
   sessionId: string,
   cost: number,
   description?: string
-): Promise<{ status: number; data: ConsumeResponse | Record<string, unknown> }> {
-  const res = await fetch(`${API}/channel/consume/${sessionId}`, {
-    method: "POST",
+): Promise<ConsumeResponse> {
+  return request<ConsumeResponse>(`/api/channel/consume/${sessionId}`, {
+    method: 'POST',
     headers: {
-      "Content-Type": "application/json",
       Authorization: `Bearer ${sessionId}`,
     },
     body: JSON.stringify({ cost, description }),
-  });
-  const data = await res.json();
-  return { status: res.status, data };
+  })
 }
 
-export async function getChannelStatus(
-  sessionId: string
-): Promise<ChannelStatusResponse> {
-  const res = await fetch(`${API}/channel/status/${sessionId}`);
-  return res.json();
+export async function getChannelStatus(sessionId: string): Promise<ChannelStatus> {
+  return request<ChannelStatus>(`/api/channel/status/${sessionId}`)
 }
 
-export async function settleChannel(
-  sessionId: string
-): Promise<{ status: number; data: SettlementResponse | Record<string, unknown> }> {
-  const res = await fetch(`${API}/channel/settle/${sessionId}`, {
-    method: "POST",
-  });
-  const data = await res.json();
-  return { status: res.status, data };
-}
-
-export async function checkHealth(): Promise<boolean> {
-  try {
-    const res = await fetch(`${API}/health`);
-    return res.ok;
-  } catch {
-    return false;
-  }
+export async function settleChannel(sessionId: string): Promise<SettleResponse> {
+  return request<SettleResponse>(`/api/channel/settle/${sessionId}`, {
+    method: 'POST',
+  })
 }

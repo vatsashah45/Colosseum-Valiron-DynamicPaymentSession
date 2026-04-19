@@ -18,7 +18,7 @@ export const TIER_POLICY: Record<string, SessionPolicy> = {
 // ─── Config ─────────────────────────────────────────────────────────────────
 
 export const CONFIG = {
-  port: Number(process.env.PORT) || 3000,
+  port: Number(process.env.PORT) || 4000,
 
   solana: {
     network: (process.env.SOLANA_NETWORK || "devnet") as "devnet" | "mainnet-beta",
