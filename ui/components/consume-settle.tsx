@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   DollarSign, Loader2, Globe,
   Lock, CheckCircle2, Clock, CreditCard, Hash,
-  Zap, Image, Database, MessageSquare, Send,
+  Zap, CloudSun, TrendingUp, Laugh, Send,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,43 +26,40 @@ import type {
 /* ── Preset API services for demo ── */
 const PRESET_APIS = [
   {
-    name: 'LLM Completion',
-    icon: MessageSquare,
-    cost: 0.50,
-    url: 'https://httpbin.org/post',
-    method: 'POST' as const,
-    body: JSON.stringify({ prompt: 'Explain quantum computing in one sentence', model: 'gpt-4' }),
+    name: 'SOL Price Feed',
+    icon: TrendingUp,
+    cost: 0.10,
+    url: 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd',
+    method: 'GET' as const,
     color: 'text-violet-400',
     bg: 'bg-violet-500/10 border-violet-500/20',
   },
   {
-    name: 'Image Analysis',
-    icon: Image,
-    cost: 1.00,
-    url: 'https://httpbin.org/post',
-    method: 'POST' as const,
-    body: JSON.stringify({ image_url: 'https://example.com/photo.jpg', task: 'describe' }),
-    color: 'text-pink-400',
-    bg: 'bg-pink-500/10 border-pink-500/20',
-  },
-  {
-    name: 'Data Query',
-    icon: Database,
-    cost: 0.10,
-    url: 'https://httpbin.org/get?query=SELECT+*+FROM+agents+LIMIT+10',
+    name: 'Live Weather',
+    icon: CloudSun,
+    cost: 0.25,
+    url: 'https://api.open-meteo.com/v1/forecast?latitude=37.77&longitude=-122.42&current_weather=true',
     method: 'GET' as const,
     color: 'text-cyan-400',
     bg: 'bg-cyan-500/10 border-cyan-500/20',
   },
   {
-    name: 'Fast Inference',
+    name: 'Random Fact',
     icon: Zap,
-    cost: 0.25,
-    url: 'https://httpbin.org/post',
-    method: 'POST' as const,
-    body: JSON.stringify({ input: 'classify: positive sentiment', model: 'fast-v1' }),
+    cost: 0.05,
+    url: 'https://uselessfacts.jsph.pl/api/v2/facts/random',
+    method: 'GET' as const,
     color: 'text-amber-400',
     bg: 'bg-amber-500/10 border-amber-500/20',
+  },
+  {
+    name: 'Random Joke',
+    icon: Laugh,
+    cost: 0.15,
+    url: 'https://official-joke-api.appspot.com/random_joke',
+    method: 'GET' as const,
+    color: 'text-pink-400',
+    bg: 'bg-pink-500/10 border-pink-500/20',
   },
 ]
 
@@ -186,7 +183,7 @@ export function ConsumeSettle({ channel }: ConsumeSettleProps) {
   }
 
   const handlePresetCall = (preset: typeof PRESET_APIS[number]) => {
-    handleConsume(preset.name, preset.cost, preset.url, preset.method, preset.body)
+    handleConsume(preset.name, preset.cost, preset.url, preset.method)
   }
 
   const handleCustomCall = () => {
