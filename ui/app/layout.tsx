@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Dynamic Payment Channels | Solana Micropayments',
+  title: 'Dynamic Payment Sessions on Solana | Valiron',
   description:
-    'Trust-adaptive payment channels for AI agents. Open credit-backed channels, consume services instantly, and settle on-chain in USDC.',
+    'Valiron Dynamic Payment Sessions give API providers escrow-guaranteed payments on Solana. Trust-scored agents deposit USDC upfront; providers settle on-chain with zero counterparty risk.',
   icons: {
     icon: [
       {
