@@ -38,10 +38,10 @@ export function ValueProps() {
       <div className="text-center">
         <p className="text-[10px] uppercase tracking-widest text-primary font-bold mb-2" aria-hidden="true">Why Valiron</p>
         <h2 id="value-props-heading" className="text-xl font-bold text-foreground tracking-tight sm:text-2xl text-balance">
-          Built for trust. Guaranteed by escrow.
+          Know your agents. Get paid automatically.
         </h2>
         <p className="text-sm text-muted-foreground mt-2 max-w-lg mx-auto leading-relaxed text-pretty">
-          API providers lose revenue to fraud and failed payments. Valiron eliminates that risk with cryptographic escrow and on-chain settlement on Solana.
+          Providers can&apos;t tell a well-behaved agent from a malicious one. Valiron scores trust before the session starts and guarantees payment through on-chain escrow.
         </p>
       </div>
 

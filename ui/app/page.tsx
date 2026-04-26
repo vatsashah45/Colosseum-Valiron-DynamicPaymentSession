@@ -88,8 +88,9 @@ export default function Home() {
 
               {/* One-liner problem → solution */}
               <p className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-2xl text-pretty">
-                API providers have no guarantee they&apos;ll be paid — until now.
-                Valiron locks payment in escrow before a session starts, so providers receive exactly what they&apos;re owed, settled on-chain in USDC.
+                Pre-transaction, infra providers cannot distinguish between a malicious agent
+                and their next paid customer. We solved that with dynamic payment sessions based
+                on trust — settled on-chain in USDC.
               </p>
 
               {/* CTA row */}
