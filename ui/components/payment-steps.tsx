@@ -18,6 +18,7 @@ export function PaymentSteps({ currentStep, error }: PaymentStepsProps) {
   if (currentStep === 'idle') return null
 
   const isError = currentStep === 'error'
+  const isAllDone = currentStep === 'confirmed'
   // When in error state, show all steps as failed from the last one
   const currentIndex = isError ? STEPS.length - 1 : STEPS.findIndex((s) => s.key === currentStep)
 
@@ -37,9 +38,9 @@ export function PaymentSteps({ currentStep, error }: PaymentStepsProps) {
       <ol className="flex items-center gap-0.5 sm:gap-1.5" aria-label="Settlement steps">
         {STEPS.map((step, i) => {
           const StepIcon = step.icon
-          const isComplete = !isError && currentIndex > i
-          const isCurrent = !isError && currentIndex === i
-          const isPending = !isError && currentIndex < i
+          const isComplete = isAllDone || (!isError && currentIndex > i)
+          const isCurrent = !isAllDone && !isError && currentIndex === i
+          const isPending = !isAllDone && !isError && currentIndex < i
           const stepStatus = isComplete ? 'complete' : isCurrent ? 'current' : 'pending'
 
           return (
