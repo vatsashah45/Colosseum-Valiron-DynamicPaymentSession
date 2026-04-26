@@ -1,32 +1,32 @@
 'use client'
 
-import { Shield, Zap, CreditCard, Lock } from 'lucide-react'
+import { ShieldCheck, Vault, Zap, CheckCircle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 
 const STEPS = [
   {
-    icon: Shield,
+    icon: ShieldCheck,
     step: '01',
-    title: 'Trust Evaluation',
-    description: 'Agent submits identity for trust scoring. A credit tier is assigned based on historical behavior and risk profile.',
+    title: 'Trust Scoring',
+    description: 'The agent is evaluated by the Valiron trust gate. A credit tier (AAA → B) is assigned based on behavioral history and risk profile — before a single request is allowed.',
   },
   {
-    icon: CreditCard,
+    icon: Vault,
     step: '02',
-    title: 'Channel Opens',
-    description: 'A payment channel opens with a credit line, duration, and request cap. No on-chain transaction required upfront.',
+    title: 'Escrow Deposit',
+    description: 'USDC equal to the credit line is deposited into a Solana escrow account. The provider sees the on-chain confirmation before the session opens — zero counterparty risk.',
   },
   {
     icon: Zap,
     step: '03',
-    title: 'Instant Consumption',
-    description: 'Agent consumes services instantly against the credit line. Each request is tracked off-chain with microsecond latency.',
+    title: 'Off-Chain Metering',
+    description: 'Each API call is metered against the escrowed credit in real time. No on-chain transaction per request — just instant, sub-millisecond accounting against the locked funds.',
   },
   {
-    icon: Lock,
+    icon: CheckCircle,
     step: '04',
     title: 'On-Chain Settlement',
-    description: 'When done, the channel settles with a single USDC transaction on Solana. Unused credit returns to the agent.',
+    description: 'At session end, one Solana transaction settles the balance: the provider receives exactly what was consumed, and any unused USDC returns to the consumer automatically.',
   },
 ]
 
@@ -34,13 +34,15 @@ export function HowItWorks() {
   return (
     <section aria-labelledby="how-it-works-heading" className="flex flex-col gap-8">
       <div className="text-center">
-        <p className="text-[10px] uppercase tracking-widest text-primary font-bold mb-2" aria-hidden="true">Architecture</p>
-        <h2 id="how-it-works-heading" className="text-xl font-bold text-foreground tracking-tight sm:text-2xl text-balance">How It Works</h2>
+        <p className="text-[10px] uppercase tracking-widest text-primary font-bold mb-2" aria-hidden="true">How It Works</p>
+        <h2 id="how-it-works-heading" className="text-xl font-bold text-foreground tracking-tight sm:text-2xl text-balance">
+          Four steps. One guaranteed payment.
+        </h2>
         <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto leading-relaxed text-pretty">
-          Trust-adaptive payment channels for AI agent economies
+          From trust check to on-chain settlement — every step is designed so providers get paid and consumers stay in control.
         </p>
       </div>
-      <ol className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Steps to use payment channels">
+      <ol className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="How Dynamic Payment Sessions work">
         {STEPS.map((step, index) => (
           <li key={step.step}>
             <Card className="border-border bg-card hover:border-primary/30 transition-all group relative overflow-hidden h-full">

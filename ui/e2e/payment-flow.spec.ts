@@ -29,13 +29,13 @@ test.describe('Page load', () => {
 
     // Header
     await expect(page.getByRole('banner')).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Dynamic Payment Channels' })).toBeVisible()
+    await expect(page.getByText('Valiron')).toBeVisible()
 
     // Connect wallet button (may show "Connect" or "Install" depending on Phantom)
     await expect(page.getByRole('button', { name: /connect|install/i })).toBeVisible()
 
     // Hero section
-    await expect(page.getByText('Trust-Adaptive Payment Channels for AI Agents')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: /Dynamic Payment Sessions/i })).toBeVisible()
     await expect(page.getByText('Live on Devnet')).toBeVisible()
 
     // Gate Agent card
@@ -48,7 +48,7 @@ test.describe('Page load', () => {
 
     // How It Works
     await expect(page.getByText('How It Works')).toBeVisible()
-    await expect(page.getByText('Trust Evaluation')).toBeVisible()
+    await expect(page.getByText('Trust Scoring')).toBeVisible()
     await expect(page.getByText('On-Chain Settlement')).toBeVisible()
   })
 
