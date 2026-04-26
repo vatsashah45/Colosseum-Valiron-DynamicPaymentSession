@@ -27,7 +27,7 @@ export function AppFooter() {
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </a>
             <a
-              href="https://www.valiron.co/docs"
+              href="https://www.npmjs.com/package/@valiron/sdk"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary/50 transition-colors"

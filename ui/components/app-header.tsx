@@ -59,7 +59,7 @@ export function AppHeader({
         {/* Right side — nav links + wallet */}
         <div className="flex items-center gap-2 sm:gap-3">
           <a
-            href="https://www.valiron.co"
+            href="https://www.valiron.co/docs#payment-channels"
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium"
@@ -92,13 +92,14 @@ export function AppHeader({
                 disabled={connecting}
                 className="gap-1.5 sm:gap-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full px-3 sm:px-4 text-xs font-semibold h-8 sm:h-9"
                 aria-label={connecting ? 'Connecting to wallet' : hasPhantom ? 'Connect Phantom wallet' : 'Install Phantom wallet extension'}
+                suppressHydrationWarning
               >
                 {connecting ? (
                   <Spinner className="h-3 w-3" aria-hidden="true" />
                 ) : (
                   <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
                 )}
-                <span className="hidden sm:inline">
+                <span className="hidden sm:inline" suppressHydrationWarning>
                   {connecting ? 'Connecting...' : hasPhantom ? 'Connect Phantom' : 'Install Phantom'}
                 </span>
                 <span className="sm:hidden" aria-hidden="true">

@@ -168,6 +168,7 @@ export default function Home() {
                   onClick={wallet.connect}
                   disabled={wallet.connecting}
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-colors"
+                  suppressHydrationWarning
                 >
                   <Wallet className="h-4 w-4" aria-hidden="true" />
                   {wallet.connecting ? 'Connecting...' : wallet.hasPhantom ? 'Connect Phantom to Start' : 'Install Phantom to Start'}

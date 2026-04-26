@@ -69,7 +69,10 @@ app.post("/channel/preflight/:agentId", async (req, res) => {
   }
 
   try {
+    console.log(`[preflight] Calling gateAgent(${agentId}) for wallet ${walletAddress}`);
+    const gateStart = Date.now();
     const gate = await gateAgent(agentId);
+    console.log(`[preflight] gateAgent returned in ${Date.now() - gateStart}ms`, { allowed: gate.allowed, score: gate.result?.score, tier: gate.result?.tier });
 
     if (!gate.allowed || !gate.policy) {
       res.status(403).json({

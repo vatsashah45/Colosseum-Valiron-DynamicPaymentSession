@@ -4,49 +4,49 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Dark fintech theme - always dark */
-  --background: oklch(0.13 0.01 250);
-  --foreground: oklch(0.95 0.01 250);
-  --card: oklch(0.16 0.01 250);
-  --card-foreground: oklch(0.95 0.01 250);
-  --popover: oklch(0.16 0.01 250);
-  --popover-foreground: oklch(0.95 0.01 250);
-  --primary: oklch(0.72 0.19 165);
-  --primary-foreground: oklch(0.13 0.01 250);
-  --secondary: oklch(0.22 0.01 250);
-  --secondary-foreground: oklch(0.88 0.01 250);
-  --muted: oklch(0.20 0.01 250);
-  --muted-foreground: oklch(0.65 0.01 250);
-  --accent: oklch(0.72 0.19 165);
-  --accent-foreground: oklch(0.13 0.01 250);
-  --destructive: oklch(0.55 0.22 27);
-  --destructive-foreground: oklch(0.95 0.01 250);
-  --border: oklch(0.25 0.01 250);
-  --input: oklch(0.22 0.01 250);
-  --ring: oklch(0.72 0.19 165);
-  --chart-1: oklch(0.72 0.19 165);
-  --chart-2: oklch(0.65 0.15 250);
-  --chart-3: oklch(0.75 0.15 85);
-  --chart-4: oklch(0.55 0.22 27);
-  --chart-5: oklch(0.60 0.15 300);
+  /* Valiron monochrome dark theme — matches valiron.co */
+  --background: #0a0a0b;
+  --foreground: #f1f1f1;
+  --card: #18181b;
+  --card-foreground: #f1f1f1;
+  --popover: #18181b;
+  --popover-foreground: #f1f1f1;
+  --primary: #f1f1f1;
+  --primary-foreground: #0a0a0b;
+  --secondary: #1f1f23;
+  --secondary-foreground: #f1f1f1;
+  --muted: #1f1f23;
+  --muted-foreground: #71717a;
+  --accent: #1f1f23;
+  --accent-foreground: #f1f1f1;
+  --destructive: #dc2626;
+  --destructive-foreground: #f1f1f1;
+  --border: #1f1f23;
+  --input: #1f1f23;
+  --ring: #52525b;
+  --chart-1: #f1f1f1;
+  --chart-2: #a1a1aa;
+  --chart-3: #71717a;
+  --chart-4: #52525b;
+  --chart-5: #3f3f46;
   --radius: 0.625rem;
-  --sidebar: oklch(0.14 0.01 250);
-  --sidebar-foreground: oklch(0.95 0.01 250);
-  --sidebar-primary: oklch(0.72 0.19 165);
-  --sidebar-primary-foreground: oklch(0.13 0.01 250);
-  --sidebar-accent: oklch(0.20 0.01 250);
-  --sidebar-accent-foreground: oklch(0.95 0.01 250);
-  --sidebar-border: oklch(0.25 0.01 250);
-  --sidebar-ring: oklch(0.72 0.19 165);
+  --sidebar: #0a0a0b;
+  --sidebar-foreground: #f1f1f1;
+  --sidebar-primary: #f1f1f1;
+  --sidebar-primary-foreground: #0a0a0b;
+  --sidebar-accent: #1f1f23;
+  --sidebar-accent-foreground: #f1f1f1;
+  --sidebar-border: #1f1f23;
+  --sidebar-ring: #52525b;
 
   /* Custom tokens */
-  --success: oklch(0.72 0.19 165);
-  --success-foreground: oklch(0.13 0.01 250);
-  --warning: oklch(0.80 0.16 85);
-  --warning-foreground: oklch(0.13 0.01 250);
-  --info: oklch(0.65 0.15 250);
-  --info-foreground: oklch(0.95 0.01 250);
-  --surface: oklch(0.18 0.01 250);
+  --success: #22c55e;
+  --success-foreground: #0a0a0b;
+  --warning: #eab308;
+  --warning-foreground: #0a0a0b;
+  --info: #a1a1aa;
+  --info-foreground: #f1f1f1;
+  --surface: #18181b;
 }
 
 @theme inline {
@@ -137,11 +137,11 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: oklch(0.30 0.01 250);
+    background: #3f3f46;
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.40 0.01 250);
+    background: #52525b;
   }
 }
 
@@ -184,11 +184,11 @@
 
 /* Glow effect for primary elements */
 .glow-primary {
-  box-shadow: 0 0 20px oklch(0.72 0.19 165 / 0.15), 0 0 40px oklch(0.72 0.19 165 / 0.05);
+  box-shadow: 0 0 20px rgba(241, 241, 241, 0.08), 0 0 40px rgba(241, 241, 241, 0.03);
 }
 
 /* Grid dot pattern for section backgrounds */
 .dot-pattern {
-  background-image: radial-gradient(oklch(0.25 0.01 250) 1px, transparent 1px);
+  background-image: radial-gradient(#1f1f23 1px, transparent 1px);
   background-size: 24px 24px;
 }
