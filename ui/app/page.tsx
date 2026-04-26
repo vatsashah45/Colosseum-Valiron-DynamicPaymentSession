@@ -148,7 +148,7 @@ export default function Home() {
         </div>
 
         {/* ── Demo section ─────────────────────────────────────────────────────── */}
-        <section id="demo" className="border-t border-border bg-secondary/[0.02]" aria-labelledby="demo-heading">
+        <section id="demo" className="scroll-mt-14 border-t border-border bg-secondary/[0.02]" aria-labelledby="demo-heading">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10 sm:py-16 flex flex-col gap-8">
 
             {/* Section header */}

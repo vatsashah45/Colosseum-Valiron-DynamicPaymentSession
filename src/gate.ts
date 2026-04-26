@@ -6,7 +6,7 @@ const valiron = new ValironSDK({
   chain: "solana",
   endpoint: CONFIG.valiron.baseUrl,
   timeout: 20_000,
-  debug: true,
+  debug: process.env.VALIRON_DEBUG === "true",
 });
 
 /**
@@ -14,7 +14,7 @@ const valiron = new ValironSDK({
  * Returns allowed=false if the agent is below the min score threshold.
  */
 export async function gateAgent(agentId: string): Promise<GateCheckResult> {
-  console.log(`[gate] Starting gate for agent ${agentId} via ${CONFIG.valiron.baseUrl}`);
+  console.log(`[gate] Starting gate for agent ${agentId}`);
   const start = Date.now();
   const result = await valiron.gate(agentId, { ttlMs: 300_000 });
   console.log(`[gate] Gate completed in ${Date.now() - start}ms — score=${result.score} tier=${result.tier}`);
